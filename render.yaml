@@ -12,6 +12,12 @@ services:
         fromDatabase:
           name: zeit-tracking-db
           property: connectionString
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
 
 databases:
   - name: zeit-tracking-db

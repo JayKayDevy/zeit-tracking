@@ -8,6 +8,9 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-in-prod";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -75,6 +78,11 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, date)
       );
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_refresh_token TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_access_token TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS google_token_expiry TIMESTAMP;
+      ALTER TABLE absences ADD COLUMN IF NOT EXISTS google_event_id VARCHAR(255);
     `);
     console.log("DB ready");
   } finally {
@@ -130,7 +138,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query(
-      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius FROM users WHERE email=$1",
+      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
       [email]
     );
     const user = result.rows[0];
@@ -147,7 +155,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -160,7 +168,7 @@ app.put("/api/auth/me", auth, async (req, res) => {
     [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, req.user.id]
   );
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -196,6 +204,174 @@ app.get("/api/geocode", auth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Google Calendar ──────────────────────────────────────────────────────────
+
+const GOOGLE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+async function getValidAccessToken(userId) {
+  const result = await pool.query(
+    "SELECT google_refresh_token, google_access_token, google_token_expiry FROM users WHERE id=$1",
+    [userId]
+  );
+  const user = result.rows[0];
+  if (!user || !user.google_refresh_token) return null;
+
+  if (user.google_access_token && user.google_token_expiry && new Date(user.google_token_expiry) > new Date(Date.now() + 60000)) {
+    return user.google_access_token;
+  }
+
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: user.google_refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+  const data = await r.json();
+  if (!r.ok) return null;
+
+  const expiry = new Date(Date.now() + data.expires_in * 1000);
+  await pool.query(
+    "UPDATE users SET google_access_token=$1, google_token_expiry=$2 WHERE id=$3",
+    [data.access_token, expiry, userId]
+  );
+  return data.access_token;
+}
+
+function absenceEventSummary(type) {
+  return { vacation: "🏖️ Urlaub", sick: "🤒 Krank", holiday: "🎉 Feiertag" }[type] || type;
+}
+
+async function syncAbsenceToGoogle(userId, absence) {
+  const accessToken = await getValidAccessToken(userId);
+  if (!accessToken) return;
+
+  const nextDay = new Date(absence.date);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const body = JSON.stringify({
+    summary: absenceEventSummary(absence.type),
+    start: { date: absence.date.toISOString().split("T")[0] },
+    end: { date: nextDay.toISOString().split("T")[0] },
+  });
+
+  try {
+    if (absence.google_event_id) {
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${absence.google_event_id}`,
+        { method: "PATCH", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body }
+      );
+    } else {
+      const r = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body }
+      );
+      const event = await r.json();
+      if (event.id) {
+        await pool.query("UPDATE absences SET google_event_id=$1 WHERE id=$2", [event.id, absence.id]);
+      }
+    }
+  } catch (e) {
+    console.error("Google-Sync fehlgeschlagen:", e.message);
+  }
+}
+
+async function deleteAbsenceFromGoogle(userId, googleEventId) {
+  const accessToken = await getValidAccessToken(userId);
+  if (!accessToken) return;
+  try {
+    await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+  } catch (e) {
+    console.error("Google-Event-Löschung fehlgeschlagen:", e.message);
+  }
+}
+
+app.get("/api/google/connect", auth, (req, res) => {
+  const state = jwt.sign({ id: req.user.id, purpose: "google-oauth" }, JWT_SECRET, { expiresIn: "10m" });
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: "code",
+    scope: GOOGLE_SCOPE,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  });
+  res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+});
+
+app.get("/api/google/callback", async (req, res) => {
+  const { code, state } = req.query;
+  try {
+    const payload = jwt.verify(state, JWT_SECRET);
+    if (payload.purpose !== "google-oauth") throw new Error("invalid state");
+
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: GOOGLE_REDIRECT_URI,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.refresh_token) throw new Error(data.error_description || "Kein Refresh-Token erhalten");
+
+    const expiry = new Date(Date.now() + data.expires_in * 1000);
+    await pool.query(
+      "UPDATE users SET google_refresh_token=$1, google_access_token=$2, google_token_expiry=$3 WHERE id=$4",
+      [data.refresh_token, data.access_token, expiry, payload.id]
+    );
+    res.redirect("/#settings?google=connected");
+  } catch (e) {
+    console.error("Google-OAuth-Callback-Fehler:", e.message);
+    res.redirect("/#settings?google=error");
+  }
+});
+
+app.post("/api/google/disconnect", auth, async (req, res) => {
+  await pool.query(
+    "UPDATE users SET google_refresh_token=NULL, google_access_token=NULL, google_token_expiry=NULL WHERE id=$1",
+    [req.user.id]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/google/events", auth, async (req, res) => {
+  const { from, to } = req.query;
+  const accessToken = await getValidAccessToken(req.user.id);
+  if (!accessToken) return res.json([]);
+
+  const params = new URLSearchParams({
+    timeMin: new Date(from).toISOString(),
+    timeMax: new Date(to).toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+  });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await r.json();
+  if (!r.ok) return res.json([]);
+
+  const events = (data.items || []).map((e) => ({
+    id: e.id,
+    summary: e.summary || "(Ohne Titel)",
+    start: e.start.date || e.start.dateTime,
+    end: e.end.date || e.end.dateTime,
+    allDay: !!e.start.date,
+  }));
+  res.json(events);
 });
 
 // ── Time tracking ─────────────────────────────────────────────────────────────
@@ -414,14 +590,22 @@ app.post("/api/absences", auth, async (req, res) => {
       "INSERT INTO absences (user_id,date,type,notes) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,date) DO UPDATE SET type=$3,notes=$4 RETURNING *",
       [req.user.id, date, type, notes || null]
     );
-    res.json(result.rows[0]);
+    const absence = result.rows[0];
+    syncAbsenceToGoogle(req.user.id, absence);
+    res.json(absence);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
 app.delete("/api/absences/:id", auth, async (req, res) => {
-  await pool.query("DELETE FROM absences WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
+  const result = await pool.query(
+    "DELETE FROM absences WHERE id=$1 AND user_id=$2 RETURNING google_event_id",
+    [req.params.id, req.user.id]
+  );
+  if (result.rows[0]?.google_event_id) {
+    deleteAbsenceFromGoogle(req.user.id, result.rows[0].google_event_id);
+  }
   res.json({ ok: true });
 });
 

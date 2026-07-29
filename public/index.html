@@ -902,6 +902,11 @@
         document.getElementById("authScreen").style.display = "none";
         document.getElementById("app").style.display = "flex";
 
+        try {
+          me = await api("GET", "/auth/me");
+          localStorage.setItem("zt_user", JSON.stringify(me));
+        } catch (e) {}
+
         // show admin nav if needed
         const adminNav = document.createElement("button");
         adminNav.className = "nav-btn";
@@ -918,6 +923,15 @@
         document.getElementById("userChip").textContent = me.name.split(" ")[0];
         await loadHome();
         checkGeofence();
+        handleGoogleRedirect();
+      }
+
+      function handleGoogleRedirect() {
+        if (!location.hash.includes("google=")) return;
+        const connected = location.hash.includes("google=connected");
+        showPage("settings");
+        history.replaceState(null, "", location.pathname);
+        alert(connected ? "Google Kalender verbunden ✓" : "Verbindung mit Google fehlgeschlagen");
       }
 
       // ── Pages ───────────────────────────────────────────────────────
@@ -1298,6 +1312,7 @@
 
       // ── Vacation ────────────────────────────────────────────────────
       let vacData = null;
+      let googleEvents = [];
 
       async function loadVacation() {
         const MONTHS = [
@@ -1317,6 +1332,16 @@
         document.getElementById("vacMonthLabel").textContent =
           `${MONTHS[vacMon - 1]} ${vacYear}`;
         vacData = await api("GET", `/absences/${vacYear}`);
+
+        const daysInMonth = new Date(vacYear, vacMon, 0).getDate();
+        const from = `${vacYear}-${String(vacMon).padStart(2, "0")}-01`;
+        const to = `${vacYear}-${String(vacMon).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+        try {
+          googleEvents = await api("GET", `/google/events?from=${from}&to=${to}`);
+        } catch (e) {
+          googleEvents = [];
+        }
+
         renderVacation();
       }
 
@@ -1410,7 +1435,44 @@
         "<div style='color:var(--muted);font-size:13px'>Keine Einträge</div>"
       }
     </div>
+
+    <div class="card">
+      <div class="card-title">📅 Kalendertermine</div>
+      ${
+        googleEvents.length
+          ? googleEvents
+              .map(
+                (e) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="flex:1;font-size:14px">${fmtDate(e.start)} · ${e.summary}</div>
+          <button class="btn btn-secondary btn-sm" onclick='applyGoogleEvent(${JSON.stringify(e).replace(/"/g, "&quot;")})'>Übernehmen</button>
+        </div>
+      `,
+              )
+              .join("")
+          : "<div style='color:var(--muted);font-size:13px'>Keine Termine</div>"
+      }
+    </div>
   `;
+      }
+
+      async function applyGoogleEvent(e) {
+        const dates = [];
+        if (e.allDay) {
+          let d = new Date(e.start);
+          const end = new Date(e.end); // Google: end ist exklusiv
+          while (d < end) {
+            dates.push(d.toISOString().split("T")[0]);
+            d.setDate(d.getDate() + 1);
+          }
+        } else {
+          dates.push(e.start.split("T")[0]);
+        }
+        for (const date of dates) {
+          await api("POST", "/absences", { date, type: selectedAbsenceType, notes: e.summary });
+        }
+        vacData = await api("GET", `/absences/${vacYear}`);
+        renderVacation();
       }
 
       function selectAbsenceType(type) {
@@ -1473,6 +1535,18 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
+    <div class="section-title">📅 Google Kalender</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="font-size:13px;color:var(--muted)">
+        Verbinde deinen Google Kalender, damit Urlaub/Krank/Feiertage dort automatisch als Termine angelegt werden.
+      </div>
+      ${me.google_connected
+        ? `<div style="font-size:14px;font-weight:700;color:var(--green)">✓ Verbunden</div>
+           <button class="btn btn-red btn-sm" style="width:auto" onclick="disconnectGoogle()">Trennen</button>`
+        : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Mit Google verbinden</button>`
+      }
+    </div>
+
     <div class="section-title">🔑 Passwort ändern</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div class="form-group"><label>Aktuelles Passwort</label><input type="password" id="sPwCur" /></div>
@@ -1526,6 +1600,23 @@
           resultEl.textContent = "";
           alert(e.message);
         }
+      }
+
+      async function connectGoogle() {
+        try {
+          const { url } = await api("GET", "/google/connect");
+          window.location.href = url;
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
+      async function disconnectGoogle() {
+        if (!confirm("Google Kalender trennen?")) return;
+        await api("POST", "/google/disconnect", {});
+        me.google_connected = false;
+        localStorage.setItem("zt_user", JSON.stringify(me));
+        renderSettings();
       }
 
       function useCurrentLocation() {
