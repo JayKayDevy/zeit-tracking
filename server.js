@@ -176,6 +176,28 @@ app.put("/api/auth/password", auth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Geocoding ─────────────────────────────────────────────────────────────────
+
+app.get("/api/geocode", auth, async (req, res) => {
+  const q = req.query.q;
+  if (!q) return res.status(400).json({ error: "Adresse erforderlich" });
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "zeit-tracking-app (https://github.com/JayKayDevy/zeit-tracking)" },
+    });
+    const results = await r.json();
+    if (!results.length) return res.status(404).json({ error: "Adresse nicht gefunden" });
+    res.json({
+      lat: parseFloat(results[0].lat),
+      lng: parseFloat(results[0].lon),
+      display_name: results[0].display_name,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Time tracking ─────────────────────────────────────────────────────────────
 
 app.get("/api/time/today", auth, async (req, res) => {

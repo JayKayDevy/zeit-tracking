@@ -928,6 +928,9 @@ function renderSettings() {
       <div style="font-size:13px;color:var(--muted)">
         Trage deinen Büro-Standort ein, dann fragt die App beim Öffnen automatisch ob du einchecken möchtest.
       </div>
+      <div class="form-group"><label>Adresse</label><input type="text" id="sAddress" placeholder="Musterstraße 1, 12345 Musterstadt" /></div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="geocodeAddress()">🔍 Adresse suchen</button>
+      <div id="geocodeResult" style="font-size:12px;color:var(--muted)"></div>
       <div class="form-group"><label>Breitengrad</label><input type="number" id="sLat" value="${me.office_lat || ""}" step="0.0000001" placeholder="48.137154" /></div>
       <div class="form-group"><label>Längengrad</label><input type="number" id="sLng" value="${me.office_lng || ""}" step="0.0000001" placeholder="11.576124" /></div>
       <div class="form-group"><label>Radius (Meter)</label><input type="number" id="sRadius" value="${me.office_radius || 200}" min="50" max="1000" /></div>
@@ -974,6 +977,22 @@ async function saveProfile() {
     document.getElementById("userChip").textContent = me.name.split(" ")[0];
     alert("Gespeichert ✓");
   } catch (e) { alert(e.message); }
+}
+
+async function geocodeAddress() {
+  const address = document.getElementById("sAddress").value.trim();
+  const resultEl = document.getElementById("geocodeResult");
+  if (!address) return alert("Bitte Adresse eingeben");
+  resultEl.textContent = "Suche...";
+  try {
+    const { lat, lng, display_name } = await api("GET", `/geocode?q=${encodeURIComponent(address)}`);
+    document.getElementById("sLat").value = lat.toFixed(7);
+    document.getElementById("sLng").value = lng.toFixed(7);
+    resultEl.textContent = "✓ " + display_name;
+  } catch (e) {
+    resultEl.textContent = "";
+    alert(e.message);
+  }
 }
 
 function useCurrentLocation() {
