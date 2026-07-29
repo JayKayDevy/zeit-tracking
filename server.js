@@ -4,6 +4,7 @@ const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const path = require("path");
+const ExcelJS = require("exceljs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -640,9 +641,9 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
   });
 });
 
-// ── CSV export ────────────────────────────────────────────────────────────────
+// ── Excel export ──────────────────────────────────────────────────────────────
 
-app.get("/api/time/export/csv/:year/:month", auth, async (req, res) => {
+app.get("/api/time/export/xlsx/:year/:month", auth, async (req, res) => {
   const { year, month } = req.params;
   const userId = req.query.user_id && req.user.role === "admin" ? req.query.user_id : req.user.id;
 
@@ -664,19 +665,55 @@ app.get("/api/time/export/csv/:year/:month", auth, async (req, res) => {
     [userId, year, month]
   );
 
-  const fmt = (ts) => ts ? new Date(ts).toLocaleString("de-DE", { timeZone: "Europe/Berlin" }) : "";
-  const h = (v) => Math.max(0, parseFloat(v)).toFixed(2).replace(".", ",");
+  const berlinDateOnly = (ts) => {
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" })
+      .format(new Date(ts))
+      .split("-")
+      .map(Number);
+    return new Date(Date.UTC(y, m - 1, d));
+  };
+  const fmt = (ts) => (ts ? new Date(ts).toLocaleString("de-DE", { timeZone: "Europe/Berlin" }) : "");
+  const round2 = (v) => Math.round(Math.max(0, parseFloat(v)) * 100) / 100;
 
-  let csv = "Datum;Check-In;Check-Out;Brutto-Stunden;Pause (h);Netto-Stunden;Notiz\n";
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Zeiten");
+  sheet.columns = [
+    { header: "Datum", key: "date", width: 12 },
+    { header: "Check-In", key: "checkIn", width: 18 },
+    { header: "Check-Out", key: "checkOut", width: 18 },
+    { header: "Brutto-Stunden", key: "gross", width: 14 },
+    { header: "Pause (h)", key: "pause", width: 12 },
+    { header: "Netto-Stunden", key: "net", width: 14 },
+    { header: "Notiz", key: "notes", width: 30 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.getColumn("date").numFmt = "dd.mm.yyyy";
+  sheet.getColumn("gross").numFmt = "0.00";
+  sheet.getColumn("pause").numFmt = "0.00";
+  sheet.getColumn("net").numFmt = "0.00";
+
   for (const e of entries.rows) {
-    const net = Math.max(0, parseFloat(e.gross_hours) - parseFloat(e.break_hours));
-    const date = new Date(e.check_in).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
-    csv += `${date};${fmt(e.check_in)};${fmt(e.check_out)};${h(e.gross_hours)};${h(e.break_hours)};${net.toFixed(2).replace(".", ",")};${(e.notes || "").replace(/;/g, ",")}\n`;
+    sheet.addRow({
+      date: berlinDateOnly(e.check_in),
+      checkIn: fmt(e.check_in),
+      checkOut: fmt(e.check_out),
+      gross: round2(e.gross_hours),
+      pause: round2(e.break_hours),
+      net: round2(parseFloat(e.gross_hours) - parseFloat(e.break_hours)),
+      notes: e.notes || "",
+    });
   }
 
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="zeiten-${year}-${String(month).padStart(2,"0")}.csv"`);
-  res.send("﻿" + csv); // BOM for Excel
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="zeiten-${year}-${String(month).padStart(2, "0")}.xlsx"`
+  );
+  await workbook.xlsx.write(res);
+  res.end();
 });
 
 // ── Absences ──────────────────────────────────────────────────────────────────
