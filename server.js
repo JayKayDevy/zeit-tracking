@@ -97,7 +97,7 @@ async function initDB() {
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
 function auth(req, res, next) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
+  const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
   if (!token) return res.status(401).json({ error: "Nicht eingeloggt" });
   try {
     req.user = jwt.verify(token, JWT_SECRET);

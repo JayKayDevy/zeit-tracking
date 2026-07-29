@@ -1266,7 +1266,7 @@
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
-      <a href="/api/time/export/xlsx/${historyYear}/${historyMon}" download style="text-decoration:none">
+      <a href="/api/time/export/xlsx/${historyYear}/${historyMon}?token=${encodeURIComponent(token)}" download style="text-decoration:none">
         <button class="btn btn-secondary btn-sm">📥 Excel Export</button>
       </a>
     </div>
