@@ -203,9 +203,8 @@ app.get("/api/geocode", auth, async (req, res) => {
 app.get("/api/time/today", auth, async (req, res) => {
   const today = new Date().toISOString().split("T")[0];
   const entry = await pool.query(
-    `SELECT te.*, p.name as project_name, p.color as project_color
+    `SELECT te.*
      FROM time_entries te
-     LEFT JOIN projects p ON p.id = te.project_id
      WHERE te.user_id=$1 AND DATE(te.check_in AT TIME ZONE 'Europe/Berlin') = $2
      ORDER BY te.check_in DESC LIMIT 1`,
     [req.user.id, today]
@@ -221,8 +220,7 @@ app.get("/api/time/today", auth, async (req, res) => {
 });
 
 app.post("/api/time/checkin", auth, async (req, res) => {
-  const { project_id, notes } = req.body;
-  const today = new Date().toISOString().split("T")[0];
+  const { notes } = req.body;
 
   const existing = await pool.query(
     `SELECT id FROM time_entries WHERE user_id=$1 AND check_out IS NULL`,
@@ -231,8 +229,8 @@ app.post("/api/time/checkin", auth, async (req, res) => {
   if (existing.rows.length) return res.status(400).json({ error: "Bereits eingecheckt" });
 
   const result = await pool.query(
-    "INSERT INTO time_entries (user_id,project_id,check_in,notes) VALUES ($1,$2,NOW(),$3) RETURNING *",
-    [req.user.id, project_id || null, notes || null]
+    "INSERT INTO time_entries (user_id,check_in,notes) VALUES ($1,NOW(),$2) RETURNING *",
+    [req.user.id, notes || null]
   );
   res.json(result.rows[0]);
 });
@@ -303,7 +301,6 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
 
   const entries = await pool.query(
     `SELECT te.*,
-            p.name as project_name, p.color as project_color,
             COALESCE(
               EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600, 0
             ) as gross_hours,
@@ -313,7 +310,6 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
               0
             ) as break_hours
      FROM time_entries te
-     LEFT JOIN projects p ON p.id = te.project_id
      WHERE te.user_id=$1
        AND EXTRACT(YEAR FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $2
        AND EXTRACT(MONTH FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $3
@@ -361,7 +357,6 @@ app.get("/api/time/export/csv/:year/:month", auth, async (req, res) => {
 
   const entries = await pool.query(
     `SELECT te.check_in, te.check_out, te.notes,
-            p.name as project,
             COALESCE(
               EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600, 0
             ) as gross_hours,
@@ -371,7 +366,6 @@ app.get("/api/time/export/csv/:year/:month", auth, async (req, res) => {
               0
             ) as break_hours
      FROM time_entries te
-     LEFT JOIN projects p ON p.id = te.project_id
      WHERE te.user_id=$1
        AND EXTRACT(YEAR FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $2
        AND EXTRACT(MONTH FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $3
@@ -382,75 +376,16 @@ app.get("/api/time/export/csv/:year/:month", auth, async (req, res) => {
   const fmt = (ts) => ts ? new Date(ts).toLocaleString("de-DE", { timeZone: "Europe/Berlin" }) : "";
   const h = (v) => Math.max(0, parseFloat(v)).toFixed(2).replace(".", ",");
 
-  let csv = "Datum;Check-In;Check-Out;Projekt;Brutto-Stunden;Pause (h);Netto-Stunden;Notiz\n";
+  let csv = "Datum;Check-In;Check-Out;Brutto-Stunden;Pause (h);Netto-Stunden;Notiz\n";
   for (const e of entries.rows) {
     const net = Math.max(0, parseFloat(e.gross_hours) - parseFloat(e.break_hours));
     const date = new Date(e.check_in).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
-    csv += `${date};${fmt(e.check_in)};${fmt(e.check_out)};${e.project || ""};${h(e.gross_hours)};${h(e.break_hours)};${net.toFixed(2).replace(".", ",")};${(e.notes || "").replace(/;/g, ",")}\n`;
+    csv += `${date};${fmt(e.check_in)};${fmt(e.check_out)};${h(e.gross_hours)};${h(e.break_hours)};${net.toFixed(2).replace(".", ",")};${(e.notes || "").replace(/;/g, ",")}\n`;
   }
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="zeiten-${year}-${String(month).padStart(2,"0")}.csv"`);
   res.send("﻿" + csv); // BOM for Excel
-});
-
-// ── API export for external support app ──────────────────────────────────────
-
-app.get("/api/export/entries", auth, async (req, res) => {
-  const { from, to, project_id } = req.query;
-  let q = `SELECT te.id, te.check_in, te.check_out, te.notes,
-                  p.name as project_name, p.external_id as project_external_id,
-                  p.color as project_color,
-                  GREATEST(0,
-                    EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600 -
-                    COALESCE((SELECT SUM(EXTRACT(EPOCH FROM (COALESCE(b.end_time,NOW()) - b.start_time)))
-                               FROM breaks b WHERE b.time_entry_id = te.id) / 3600, 0)
-                  ) as net_hours
-           FROM time_entries te
-           LEFT JOIN projects p ON p.id = te.project_id
-           WHERE te.user_id=$1`;
-  const params = [req.user.id];
-  if (from) { params.push(from); q += ` AND te.check_in >= $${params.length}`; }
-  if (to) { params.push(to); q += ` AND te.check_in <= $${params.length}`; }
-  if (project_id) { params.push(project_id); q += ` AND te.project_id = $${params.length}`; }
-  q += " ORDER BY te.check_in";
-  const result = await pool.query(q, params);
-  res.json(result.rows);
-});
-
-// ── Projects ──────────────────────────────────────────────────────────────────
-
-app.get("/api/projects", auth, async (req, res) => {
-  const result = await pool.query(
-    "SELECT * FROM projects WHERE user_id=$1 AND active=true ORDER BY name",
-    [req.user.id]
-  );
-  res.json(result.rows);
-});
-
-app.post("/api/projects", auth, async (req, res) => {
-  const { name, color, external_id } = req.body;
-  if (!name) return res.status(400).json({ error: "Name erforderlich" });
-  const result = await pool.query(
-    "INSERT INTO projects (user_id,name,color,external_id) VALUES ($1,$2,$3,$4) RETURNING *",
-    [req.user.id, name, color || "#ff2d78", external_id || null]
-  );
-  res.json(result.rows[0]);
-});
-
-app.put("/api/projects/:id", auth, async (req, res) => {
-  const { name, color, external_id, active } = req.body;
-  const result = await pool.query(
-    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4 WHERE id=$5 AND user_id=$6 RETURNING *",
-    [name, color, external_id || null, active !== false, req.params.id, req.user.id]
-  );
-  if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
-  res.json(result.rows[0]);
-});
-
-app.delete("/api/projects/:id", auth, async (req, res) => {
-  await pool.query("UPDATE projects SET active=false WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
-  res.json({ ok: true });
 });
 
 // ── Absences ──────────────────────────────────────────────────────────────────
@@ -517,11 +452,11 @@ app.delete("/api/admin/users/:id", auth, adminOnly, async (req, res) => {
 // ── Time entry edit ───────────────────────────────────────────────────────────
 
 app.put("/api/time/:id", auth, async (req, res) => {
-  const { check_in, check_out, project_id, notes } = req.body;
+  const { check_in, check_out, notes } = req.body;
   const result = await pool.query(
-    `UPDATE time_entries SET check_in=$1,check_out=$2,project_id=$3,notes=$4
-     WHERE id=$5 AND user_id=$6 RETURNING *`,
-    [check_in, check_out || null, project_id || null, notes || null, req.params.id, req.user.id]
+    `UPDATE time_entries SET check_in=$1,check_out=$2,notes=$3
+     WHERE id=$4 AND user_id=$5 RETURNING *`,
+    [check_in, check_out || null, notes || null, req.params.id, req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);

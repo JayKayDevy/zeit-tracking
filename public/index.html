@@ -1,512 +1,993 @@
 <!doctype html>
 <html lang="de">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Zeit-Tracking</title>
-  <link rel="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#0d0d0f" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #0d0d0f;
-      --bg2: #16161a;
-      --bg3: #1e1e24;
-      --border: #ffffff12;
-      --text: #f0f0f0;
-      --muted: #ffffff50;
-      --accent: #ff2d78;
-      --green: #2ecc71;
-      --yellow: #ffd60a;
-      --red: #e74c3c;
-      --blue: #3b82f6;
-    }
-    body {
-      font-family: "Inter", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      max-width: 480px;
-      margin: 0 auto;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>Zeit-Tracking</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0d0d0f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      :root {
+        --bg: #0d0d0f;
+        --bg2: #16161a;
+        --bg3: #1e1e24;
+        --border: #ffffff12;
+        --text: #f0f0f0;
+        --muted: #ffffff50;
+        --accent: #ff2d78;
+        --green: #2ecc71;
+        --yellow: #ffd60a;
+        --red: #e74c3c;
+        --blue: #3b82f6;
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        max-width: 480px;
+        margin: 0 auto;
+      }
 
-    /* ── Auth ──────────────────────────────────────────────── */
-    #authScreen {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem 1.5rem;
-      gap: 1rem;
-    }
-    .auth-logo { font-size: 32px; font-weight: 800; }
-    .auth-logo span { color: var(--accent); }
-    .auth-sub { color: var(--muted); font-size: 14px; margin-bottom: 1rem; }
-    .auth-tabs { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; width: 100%; }
-    .auth-tab {
-      flex: 1; padding: 10px; background: transparent; border: none; color: var(--muted);
-      font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-    }
-    .auth-tab.active { background: var(--accent); color: #fff; }
-    .form-group { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-    label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-    input, select, textarea {
-      width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
-      color: var(--text); font-family: inherit; font-size: 15px; padding: 12px 14px;
-      outline: none;
-    }
-    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
-    input[type="color"] { padding: 4px; height: 44px; cursor: pointer; }
-    .btn {
-      width: 100%; padding: 14px; border: none; border-radius: 12px; font-family: inherit;
-      font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .15s;
-    }
-    .btn:active { opacity: .85; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
-    .btn-green { background: var(--green); color: #fff; }
-    .btn-yellow { background: var(--yellow); color: #000; }
-    .btn-red { background: #e74c3c20; color: var(--red); border: 1px solid #e74c3c40; }
-    .btn-sm { padding: 10px 16px; font-size: 13px; width: auto; border-radius: 10px; }
-    .err { color: var(--red); font-size: 13px; text-align: center; }
+      /* ── Auth ──────────────────────────────────────────────── */
+      #authScreen {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 1.5rem;
+        gap: 1rem;
+      }
+      .auth-logo {
+        font-size: 32px;
+        font-weight: 800;
+      }
+      .auth-logo span {
+        color: var(--accent);
+      }
+      .auth-sub {
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 1rem;
+      }
+      .auth-tabs {
+        display: flex;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        width: 100%;
+      }
+      .auth-tab {
+        flex: 1;
+        padding: 10px;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .auth-tab.active {
+        background: var(--accent);
+        color: #fff;
+      }
+      .form-group {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 15px;
+        padding: 12px 14px;
+        outline: none;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+      }
+      input[type="color"] {
+        padding: 4px;
+        height: 44px;
+        cursor: pointer;
+      }
+      .btn {
+        width: 100%;
+        padding: 14px;
+        border: none;
+        border-radius: 12px;
+        font-family: inherit;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn:active {
+        opacity: 0.85;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .btn-secondary {
+        background: var(--bg3);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .btn-green {
+        background: var(--green);
+        color: #fff;
+      }
+      .btn-yellow {
+        background: var(--yellow);
+        color: #000;
+      }
+      .btn-red {
+        background: #e74c3c20;
+        color: var(--red);
+        border: 1px solid #e74c3c40;
+      }
+      .btn-sm {
+        padding: 10px 16px;
+        font-size: 13px;
+        width: auto;
+        border-radius: 10px;
+      }
+      .err {
+        color: var(--red);
+        font-size: 13px;
+        text-align: center;
+      }
 
-    /* ── App shell ─────────────────────────────────────────── */
-    #app { display: none; flex-direction: column; flex: 1; }
-    .header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: .9rem 1.25rem; border-bottom: 1px solid var(--border); flex-shrink: 0;
-    }
-    .logo { font-weight: 800; font-size: 16px; }
-    .logo span { color: var(--accent); }
-    .header-right { display: flex; align-items: center; gap: 8px; }
-    .avatar-chip {
-      background: var(--bg3); border: 1px solid var(--border); border-radius: 20px;
-      padding: 4px 10px; font-size: 13px; font-weight: 600; cursor: pointer;
-    }
+      /* ── App shell ─────────────────────────────────────────── */
+      #app {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .logo {
+        font-weight: 800;
+        font-size: 16px;
+      }
+      .logo span {
+        color: var(--accent);
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .avatar-chip {
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 4px 10px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
 
-    /* ── Pages ─────────────────────────────────────────────── */
-    .pages { flex: 1; overflow-y: auto; padding-bottom: 72px; }
-    .page { display: none; padding: 1.25rem 1.25rem; }
-    .page.active { display: block; }
+      /* ── Pages ─────────────────────────────────────────────── */
+      .pages {
+        flex: 1;
+        overflow-y: auto;
+        padding-bottom: 72px;
+      }
+      .page {
+        display: none;
+        padding: 1.25rem 1.25rem;
+      }
+      .page.active {
+        display: block;
+      }
 
-    /* ── Bottom nav ────────────────────────────────────────── */
-    .bottom-nav {
-      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-      width: 100%; max-width: 480px;
-      background: var(--bg2); border-top: 1px solid var(--border);
-      display: flex; z-index: 100;
-    }
-    .nav-btn {
-      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 3px; padding: 10px 4px 14px; background: none; border: none; cursor: pointer;
-      color: var(--muted); font-family: inherit; font-size: 10px; font-weight: 600;
-      transition: color .15s;
-    }
-    .nav-btn.active { color: var(--accent); }
-    .nav-icon { font-size: 20px; }
+      /* ── Bottom nav ────────────────────────────────────────── */
+      .bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 480px;
+        background: var(--bg2);
+        border-top: 1px solid var(--border);
+        display: flex;
+        z-index: 100;
+      }
+      .nav-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 10px 4px 14px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 10px;
+        font-weight: 600;
+        transition: color 0.15s;
+      }
+      .nav-btn.active {
+        color: var(--accent);
+      }
+      .nav-icon {
+        font-size: 20px;
+      }
 
-    /* ── Cards ─────────────────────────────────────────────── */
-    .card {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
-      padding: 1.1rem 1.2rem; margin-bottom: .75rem;
-    }
-    .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: .5rem; }
-    .stat-row { display: flex; gap: .5rem; flex-wrap: wrap; }
-    .stat-chip {
-      background: var(--bg3); border-radius: 10px; padding: 8px 12px;
-      flex: 1; min-width: 80px;
-    }
-    .stat-chip .val { font-size: 18px; font-weight: 800; }
-    .stat-chip .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .positive { color: var(--green); }
-    .negative { color: var(--red); }
+      /* ── Cards ─────────────────────────────────────────────── */
+      .card {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1.1rem 1.2rem;
+        margin-bottom: 0.75rem;
+      }
+      .card-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 0.5rem;
+      }
+      .stat-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .stat-chip {
+        background: var(--bg3);
+        border-radius: 10px;
+        padding: 8px 12px;
+        flex: 1;
+        min-width: 80px;
+      }
+      .stat-chip .val {
+        font-size: 18px;
+        font-weight: 800;
+      }
+      .stat-chip .lbl {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .positive {
+        color: var(--green);
+      }
+      .negative {
+        color: var(--red);
+      }
 
-    /* ── Status badge ──────────────────────────────────────── */
-    .status-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; font-weight: 700; padding: 6px 12px; border-radius: 20px;
-    }
-    .status-badge.in { background: #2ecc7120; color: var(--green); border: 1px solid #2ecc7140; }
-    .status-badge.out { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
-    .status-badge.pause { background: #ffd60a20; color: var(--yellow); border: 1px solid #ffd60a40; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-    .dot.pulse { animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+      /* ── Status badge ──────────────────────────────────────── */
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 20px;
+      }
+      .status-badge.in {
+        background: #2ecc7120;
+        color: var(--green);
+        border: 1px solid #2ecc7140;
+      }
+      .status-badge.out {
+        background: var(--bg3);
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .status-badge.pause {
+        background: #ffd60a20;
+        color: var(--yellow);
+        border: 1px solid #ffd60a40;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .dot.pulse {
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
 
-    /* ── Big action buttons ────────────────────────────────── */
-    .action-area { display: flex; flex-direction: column; gap: .75rem; margin: 1rem 0; }
-    .big-btn {
-      width: 100%; padding: 22px; border: none; border-radius: 20px; font-family: inherit;
-      font-size: 18px; font-weight: 800; cursor: pointer; transition: transform .1s, opacity .15s;
-      display: flex; align-items: center; justify-content: center; gap: .6rem;
-    }
-    .big-btn:active { transform: scale(.97); }
-    .big-btn-in { background: var(--green); color: #fff; }
-    .big-btn-out { background: var(--accent); color: #fff; }
-    .big-btn-break { background: #ffd60a20; border: 2px solid #ffd60a50; color: var(--yellow); }
-    .big-btn-break-end { background: #ffd60a; color: #000; }
-    .big-btn:disabled { opacity: .35; cursor: default; }
+      /* ── Big action buttons ────────────────────────────────── */
+      .action-area {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin: 1rem 0;
+      }
+      .big-btn {
+        width: 100%;
+        padding: 22px;
+        border: none;
+        border-radius: 20px;
+        font-family: inherit;
+        font-size: 18px;
+        font-weight: 800;
+        cursor: pointer;
+        transition:
+          transform 0.1s,
+          opacity 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+      }
+      .big-btn:active {
+        transform: scale(0.97);
+      }
+      .big-btn-in {
+        background: var(--green);
+        color: #fff;
+      }
+      .big-btn-out {
+        background: var(--accent);
+        color: #fff;
+      }
+      .big-btn-break {
+        background: #ffd60a20;
+        border: 2px solid #ffd60a50;
+        color: var(--yellow);
+      }
+      .big-btn-break-end {
+        background: #ffd60a;
+        color: #000;
+      }
+      .big-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
 
-    /* ── Timer ─────────────────────────────────────────────── */
-    .live-timer { font-size: 42px; font-weight: 800; text-align: center; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-    .timer-sub { text-align: center; font-size: 13px; color: var(--muted); margin-top: 4px; }
+      /* ── Timer ─────────────────────────────────────────────── */
+      .live-timer {
+        font-size: 42px;
+        font-weight: 800;
+        text-align: center;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+      }
+      .timer-sub {
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
 
-    /* ── Geo hint ──────────────────────────────────────────── */
-    .geo-hint {
-      background: #2ecc7115; border: 1px solid #2ecc7130; border-radius: 12px;
-      padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--green);
-      display: flex; align-items: center; gap: 8px; margin-bottom: .75rem;
-    }
+      /* ── Geo hint ──────────────────────────────────────────── */
+      .geo-hint {
+        background: #2ecc7115;
+        border: 1px solid #2ecc7130;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--green);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 0.75rem;
+      }
 
-    /* ── History entries ───────────────────────────────────── */
-    .entry-row {
-      display: flex; align-items: center; gap: 10px;
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
-      padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
-    }
-    .entry-row:hover { border-color: #ffffff25; }
-    .entry-date { font-size: 13px; font-weight: 700; min-width: 38px; }
-    .entry-times { flex: 1; }
-    .entry-times .t { font-size: 14px; font-weight: 600; }
-    .entry-times .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .entry-hours { font-size: 15px; font-weight: 800; color: var(--accent); }
-    .project-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+      /* ── History entries ───────────────────────────────────── */
+      .entry-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        cursor: pointer;
+      }
+      .entry-row:hover {
+        border-color: #ffffff25;
+      }
+      .entry-date {
+        font-size: 13px;
+        font-weight: 700;
+        min-width: 38px;
+      }
+      .entry-times {
+        flex: 1;
+      }
+      .entry-times .t {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .entry-times .sub {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .entry-hours {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--accent);
+      }
 
-    /* ── Month nav ─────────────────────────────────────────── */
-    .month-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
-    .month-nav button { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: 8px 14px; font-size: 18px; cursor: pointer; }
-    .month-nav .month-label { font-size: 17px; font-weight: 800; }
+      /* ── Month nav ─────────────────────────────────────────── */
+      .month-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+      }
+      .month-nav button {
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        padding: 8px 14px;
+        font-size: 18px;
+        cursor: pointer;
+      }
+      .month-nav .month-label {
+        font-size: 17px;
+        font-weight: 800;
+      }
 
-    /* ── Vacation ──────────────────────────────────────────── */
-    .calendar-grid {
-      display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; margin-bottom: 1rem;
-    }
-    .cal-header { text-align: center; font-size: 11px; font-weight: 700; color: var(--muted); padding: 4px; }
-    .cal-day {
-      aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-      border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
-      transition: background .15s;
-    }
-    .cal-day:hover { background: var(--bg3); }
-    .cal-day.today { border: 2px solid var(--accent); }
-    .cal-day.vacation { background: #3b82f620; color: var(--blue); }
-    .cal-day.sick { background: #e74c3c20; color: var(--red); }
-    .cal-day.holiday { background: #ffd60a20; color: var(--yellow); }
-    .cal-day.empty { cursor: default; opacity: 0; }
-    .cal-day.weekend { color: var(--muted); }
-    .absence-types { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1rem; }
-    .absence-chip {
-      padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;
-      cursor: pointer; border: 2px solid transparent;
-    }
-    .absence-chip.vacation { background: #3b82f620; color: var(--blue); }
-    .absence-chip.sick { background: #e74c3c20; color: var(--red); }
-    .absence-chip.holiday { background: #ffd60a20; color: var(--yellow); }
-    .absence-chip.selected { border-color: currentColor; }
+      /* ── Vacation ──────────────────────────────────────────── */
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+        margin-bottom: 1rem;
+      }
+      .cal-header {
+        text-align: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--muted);
+        padding: 4px;
+      }
+      .cal-day {
+        aspect-ratio: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .cal-day:hover {
+        background: var(--bg3);
+      }
+      .cal-day.today {
+        border: 2px solid var(--accent);
+      }
+      .cal-day.vacation {
+        background: #3b82f620;
+        color: var(--blue);
+      }
+      .cal-day.sick {
+        background: #e74c3c20;
+        color: var(--red);
+      }
+      .cal-day.holiday {
+        background: #ffd60a20;
+        color: var(--yellow);
+      }
+      .cal-day.empty {
+        cursor: default;
+        opacity: 0;
+      }
+      .cal-day.weekend {
+        color: var(--muted);
+      }
+      .absence-types {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      .absence-chip {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 2px solid transparent;
+      }
+      .absence-chip.vacation {
+        background: #3b82f620;
+        color: var(--blue);
+      }
+      .absence-chip.sick {
+        background: #e74c3c20;
+        color: var(--red);
+      }
+      .absence-chip.holiday {
+        background: #ffd60a20;
+        color: var(--yellow);
+      }
+      .absence-chip.selected {
+        border-color: currentColor;
+      }
 
-    /* ── Projects ──────────────────────────────────────────── */
-    .project-row {
-      display: flex; align-items: center; gap: 10px;
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
-      padding: 12px 14px; margin-bottom: 8px;
-    }
-    .project-color { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
-    .project-name { flex: 1; font-weight: 600; font-size: 15px; }
-    .project-ext { font-size: 11px; color: var(--muted); }
+      /* ── Settings / Admin ──────────────────────────────────── */
+      .section-title {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 1.25rem 0 0.5rem;
+      }
 
-    /* ── Settings / Admin ──────────────────────────────────── */
-    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 1.25rem 0 .5rem; }
+      /* ── Modal ─────────────────────────────────────────────── */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: #000a;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 200;
+        padding: 1rem;
+      }
+      .modal {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 20px 20px 16px 16px;
+        width: 100%;
+        max-width: 480px;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .modal-title {
+        font-size: 18px;
+        font-weight: 800;
+      }
+      .modal-close {
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 22px;
+        cursor: pointer;
+        align-self: flex-end;
+      }
 
-    /* ── Modal ─────────────────────────────────────────────── */
-    .modal-backdrop {
-      position: fixed; inset: 0; background: #000a; display: flex;
-      align-items: flex-end; justify-content: center; z-index: 200; padding: 1rem;
-    }
-    .modal {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 20px 20px 16px 16px;
-      width: 100%; max-width: 480px; padding: 1.5rem; display: flex; flex-direction: column; gap: .75rem;
-      max-height: 90vh; overflow-y: auto;
-    }
-    .modal-title { font-size: 18px; font-weight: 800; }
-    .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; align-self: flex-end; }
+      /* ── Misc ──────────────────────────────────────────────── */
+      .divider {
+        height: 1px;
+        background: var(--border);
+        margin: 0.75rem 0;
+      }
+      .tag {
+        display: inline-block;
+        background: var(--bg3);
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .empty {
+        text-align: center;
+        color: var(--muted);
+        padding: 2rem;
+        font-size: 14px;
+      }
+      .geo-banner {
+        background: #2ecc7110;
+        border: 1px solid #2ecc7125;
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: var(--green);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 0.75rem;
+        cursor: pointer;
+      }
+      select option {
+        background: #1e1e24;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── Auth screen ────────────────────────────────────────────── -->
+    <div id="authScreen">
+      <div class="auth-logo">Zeit-Tracking<span>.saas.</span>do</div>
+      <div class="auth-sub">Zeiterfassung für dein Team</div>
 
-    /* ── Misc ──────────────────────────────────────────────── */
-    .divider { height: 1px; background: var(--border); margin: .75rem 0; }
-    .tag { display: inline-block; background: var(--bg3); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--muted); }
-    .empty { text-align: center; color: var(--muted); padding: 2rem; font-size: 14px; }
-    .geo-banner {
-      background: #2ecc7110; border: 1px solid #2ecc7125; border-radius: 12px;
-      padding: 10px 14px; font-size: 13px; color: var(--green); font-weight: 600;
-      display: flex; align-items: center; gap: 8px; margin-bottom: .75rem; cursor: pointer;
-    }
-    select option { background: #1e1e24; }
-  </style>
-</head>
-<body>
-
-<!-- ── Auth screen ────────────────────────────────────────────── -->
-<div id="authScreen">
-  <div class="auth-logo">Zeit<span>.</span>io</div>
-  <div class="auth-sub">Zeiterfassung für dein Team</div>
-
-  <div class="auth-tabs">
-    <button class="auth-tab active" onclick="switchTab('login')">Login</button>
-    <button class="auth-tab" onclick="switchTab('register')">Registrieren</button>
-  </div>
-
-  <div id="loginForm" style="width:100%;display:flex;flex-direction:column;gap:.75rem;">
-    <div class="form-group"><label>E-Mail</label><input type="email" id="loginEmail" placeholder="name@firma.de" /></div>
-    <div class="form-group"><label>Passwort</label><input type="password" id="loginPw" placeholder="••••••••" /></div>
-    <div class="err" id="loginErr"></div>
-    <button class="btn btn-primary" onclick="doLogin()">Einloggen</button>
-  </div>
-
-  <div id="registerForm" style="width:100%;display:none;flex-direction:column;gap:.75rem;">
-    <div class="form-group"><label>Name</label><input type="text" id="regName" placeholder="Max Mustermann" /></div>
-    <div class="form-group"><label>E-Mail</label><input type="email" id="regEmail" placeholder="name@firma.de" /></div>
-    <div class="form-group"><label>Passwort</label><input type="password" id="regPw" placeholder="Mindestens 8 Zeichen" /></div>
-    <div class="err" id="regErr"></div>
-    <button class="btn btn-primary" onclick="doRegister()">Account erstellen</button>
-  </div>
-</div>
-
-<!-- ── App shell ──────────────────────────────────────────────── -->
-<div id="app">
-  <div class="header">
-    <div class="logo">Zeit<span>.</span>io</div>
-    <div class="header-right">
-      <div class="avatar-chip" id="userChip" onclick="showPage('settings')">–</div>
-    </div>
-  </div>
-
-  <div class="pages">
-    <!-- Heute -->
-    <div class="page active" id="page-home">
-      <div id="geoBanner" style="display:none" class="geo-banner">
-        📍 Du bist in der Nähe des Büros – <strong>Einchecken?</strong>
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('login')">
+          Login
+        </button>
+        <button class="auth-tab" onclick="switchTab('register')">
+          Registrieren
+        </button>
       </div>
-      <div id="homeContent"></div>
-    </div>
 
-    <!-- Verlauf -->
-    <div class="page" id="page-history">
-      <div class="month-nav">
-        <button onclick="historyMonth(-1)">‹</button>
-        <span class="month-label" id="historyMonthLabel">–</span>
-        <button onclick="historyMonth(1)">›</button>
+      <div
+        id="loginForm"
+        style="width: 100%; display: flex; flex-direction: column; gap: 0.75rem"
+      >
+        <div class="form-group">
+          <label>E-Mail</label
+          ><input type="email" id="loginEmail" placeholder="name@firma.de" />
+        </div>
+        <div class="form-group">
+          <label>Passwort</label
+          ><input type="password" id="loginPw" placeholder="••••••••" />
+        </div>
+        <div class="err" id="loginErr"></div>
+        <button class="btn btn-primary" onclick="doLogin()">Einloggen</button>
       </div>
-      <div id="historyContent"></div>
-    </div>
 
-    <!-- Urlaub -->
-    <div class="page" id="page-vacation">
-      <div class="month-nav">
-        <button onclick="vacMonth(-1)">‹</button>
-        <span class="month-label" id="vacMonthLabel">–</span>
-        <button onclick="vacMonth(1)">›</button>
+      <div
+        id="registerForm"
+        style="width: 100%; display: none; flex-direction: column; gap: 0.75rem"
+      >
+        <div class="form-group">
+          <label>Name</label
+          ><input type="text" id="regName" placeholder="Max Mustermann" />
+        </div>
+        <div class="form-group">
+          <label>E-Mail</label
+          ><input type="email" id="regEmail" placeholder="name@firma.de" />
+        </div>
+        <div class="form-group">
+          <label>Passwort</label
+          ><input
+            type="password"
+            id="regPw"
+            placeholder="Mindestens 8 Zeichen"
+          />
+        </div>
+        <div class="err" id="regErr"></div>
+        <button class="btn btn-primary" onclick="doRegister()">
+          Account erstellen
+        </button>
       </div>
-      <div id="vacContent"></div>
     </div>
 
-    <!-- Projekte -->
-    <div class="page" id="page-projects">
-      <div id="projectsContent"></div>
-      <div style="margin-top:1rem">
-        <button class="btn btn-primary" onclick="showAddProject()">+ Projekt anlegen</button>
+    <!-- ── App shell ──────────────────────────────────────────────── -->
+    <div id="app">
+      <div class="header">
+        <div class="logo">Zeit<span>.</span>io</div>
+        <div class="header-right">
+          <div class="avatar-chip" id="userChip" onclick="showPage('settings')">
+            –
+          </div>
+        </div>
       </div>
+
+      <div class="pages">
+        <!-- Heute -->
+        <div class="page active" id="page-home">
+          <div id="geoBanner" style="display: none" class="geo-banner">
+            📍 Du bist in der Nähe des Büros – <strong>Einchecken?</strong>
+          </div>
+          <div id="homeContent"></div>
+        </div>
+
+        <!-- Verlauf -->
+        <div class="page" id="page-history">
+          <div class="month-nav">
+            <button onclick="historyMonth(-1)">‹</button>
+            <span class="month-label" id="historyMonthLabel">–</span>
+            <button onclick="historyMonth(1)">›</button>
+          </div>
+          <div id="historyContent"></div>
+        </div>
+
+        <!-- Urlaub -->
+        <div class="page" id="page-vacation">
+          <div class="month-nav">
+            <button onclick="vacMonth(-1)">‹</button>
+            <span class="month-label" id="vacMonthLabel">–</span>
+            <button onclick="vacMonth(1)">›</button>
+          </div>
+          <div id="vacContent"></div>
+        </div>
+
+        <!-- Einstellungen -->
+        <div class="page" id="page-settings">
+          <div id="settingsContent"></div>
+        </div>
+
+        <!-- Admin -->
+        <div class="page" id="page-admin">
+          <div id="adminContent"></div>
+        </div>
+      </div>
+
+      <nav class="bottom-nav" id="bottomNav">
+        <button
+          class="nav-btn active"
+          onclick="showPage('home')"
+          data-page="home"
+        >
+          <span class="nav-icon">🕐</span>Heute
+        </button>
+        <button
+          class="nav-btn"
+          onclick="showPage('history')"
+          data-page="history"
+        >
+          <span class="nav-icon">📋</span>Verlauf
+        </button>
+        <button
+          class="nav-btn"
+          onclick="showPage('vacation')"
+          data-page="vacation"
+        >
+          <span class="nav-icon">🏖️</span>Urlaub
+        </button>
+        <button
+          class="nav-btn"
+          onclick="showPage('settings')"
+          data-page="settings"
+        >
+          <span class="nav-icon">⚙️</span>Einst.
+        </button>
+      </nav>
     </div>
 
-    <!-- Einstellungen -->
-    <div class="page" id="page-settings">
-      <div id="settingsContent"></div>
+    <!-- ── Modals ──────────────────────────────────────────────────── -->
+    <div
+      id="modal"
+      style="display: none"
+      class="modal-backdrop"
+      onclick="closeModal(event)"
+    >
+      <div class="modal" id="modalInner"></div>
     </div>
 
-    <!-- Admin -->
-    <div class="page" id="page-admin">
-      <div id="adminContent"></div>
-    </div>
-  </div>
+    <script>
+      // ── State ───────────────────────────────────────────────────────
+      let token = localStorage.getItem("zt_token");
+      let me = JSON.parse(localStorage.getItem("zt_user") || "null");
+      let timerInterval = null;
+      let todayData = null;
+      let historyYear = new Date().getFullYear();
+      let historyMon = new Date().getMonth() + 1;
+      let vacYear = new Date().getFullYear();
+      let vacMon = new Date().getMonth() + 1;
+      let selectedAbsenceType = "vacation";
 
-  <nav class="bottom-nav" id="bottomNav">
-    <button class="nav-btn active" onclick="showPage('home')" data-page="home">
-      <span class="nav-icon">🕐</span>Heute
-    </button>
-    <button class="nav-btn" onclick="showPage('history')" data-page="history">
-      <span class="nav-icon">📋</span>Verlauf
-    </button>
-    <button class="nav-btn" onclick="showPage('vacation')" data-page="vacation">
-      <span class="nav-icon">🏖️</span>Urlaub
-    </button>
-    <button class="nav-btn" onclick="showPage('projects')" data-page="projects">
-      <span class="nav-icon">📁</span>Projekte
-    </button>
-    <button class="nav-btn" onclick="showPage('settings')" data-page="settings">
-      <span class="nav-icon">⚙️</span>Einst.
-    </button>
-  </nav>
-</div>
+      // ── API helper ──────────────────────────────────────────────────
+      async function api(method, path, body) {
+        const res = await fetch("/api" + path, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: "Bearer " + token } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Fehler");
+        return data;
+      }
 
-<!-- ── Modals ──────────────────────────────────────────────────── -->
-<div id="modal" style="display:none" class="modal-backdrop" onclick="closeModal(event)">
-  <div class="modal" id="modalInner"></div>
-</div>
+      // ── Auth ────────────────────────────────────────────────────────
+      function switchTab(tab) {
+        document
+          .querySelectorAll(".auth-tab")
+          .forEach((t, i) =>
+            t.classList.toggle("active", (i === 0) === (tab === "login")),
+          );
+        document.getElementById("loginForm").style.display =
+          tab === "login" ? "flex" : "none";
+        document.getElementById("registerForm").style.display =
+          tab === "register" ? "flex" : "none";
+      }
 
-<script>
-// ── State ───────────────────────────────────────────────────────
-let token = localStorage.getItem("zt_token");
-let me = JSON.parse(localStorage.getItem("zt_user") || "null");
-let timerInterval = null;
-let todayData = null;
-let historyYear = new Date().getFullYear();
-let historyMon = new Date().getMonth() + 1;
-let vacYear = new Date().getFullYear();
-let vacMon = new Date().getMonth() + 1;
-let projects = [];
-let selectedAbsenceType = "vacation";
+      async function doLogin() {
+        const email = document.getElementById("loginEmail").value;
+        const pw = document.getElementById("loginPw").value;
+        try {
+          const { token: t, user } = await api("POST", "/auth/login", {
+            email,
+            password: pw,
+          });
+          saveAuth(t, user);
+        } catch (e) {
+          document.getElementById("loginErr").textContent = e.message;
+        }
+      }
 
-// ── API helper ──────────────────────────────────────────────────
-async function api(method, path, body) {
-  const res = await fetch("/api" + path, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: "Bearer " + token } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Fehler");
-  return data;
-}
+      async function doRegister() {
+        const name = document.getElementById("regName").value;
+        const email = document.getElementById("regEmail").value;
+        const pw = document.getElementById("regPw").value;
+        try {
+          const { token: t, user } = await api("POST", "/auth/register", {
+            name,
+            email,
+            password: pw,
+          });
+          saveAuth(t, user);
+        } catch (e) {
+          document.getElementById("regErr").textContent = e.message;
+        }
+      }
 
-// ── Auth ────────────────────────────────────────────────────────
-function switchTab(tab) {
-  document.querySelectorAll(".auth-tab").forEach((t, i) =>
-    t.classList.toggle("active", (i === 0) === (tab === "login"))
-  );
-  document.getElementById("loginForm").style.display = tab === "login" ? "flex" : "none";
-  document.getElementById("registerForm").style.display = tab === "register" ? "flex" : "none";
-}
+      function saveAuth(t, user) {
+        token = t;
+        me = user;
+        localStorage.setItem("zt_token", t);
+        localStorage.setItem("zt_user", JSON.stringify(user));
+        bootApp();
+      }
 
-async function doLogin() {
-  const email = document.getElementById("loginEmail").value;
-  const pw = document.getElementById("loginPw").value;
-  try {
-    const { token: t, user } = await api("POST", "/auth/login", { email, password: pw });
-    saveAuth(t, user);
-  } catch (e) {
-    document.getElementById("loginErr").textContent = e.message;
-  }
-}
+      function logout() {
+        token = null;
+        me = null;
+        localStorage.removeItem("zt_token");
+        localStorage.removeItem("zt_user");
+        document.getElementById("app").style.display = "none";
+        document.getElementById("authScreen").style.display = "flex";
+      }
 
-async function doRegister() {
-  const name = document.getElementById("regName").value;
-  const email = document.getElementById("regEmail").value;
-  const pw = document.getElementById("regPw").value;
-  try {
-    const { token: t, user } = await api("POST", "/auth/register", { name, email, password: pw });
-    saveAuth(t, user);
-  } catch (e) {
-    document.getElementById("regErr").textContent = e.message;
-  }
-}
+      // ── Boot ────────────────────────────────────────────────────────
+      async function bootApp() {
+        document.getElementById("authScreen").style.display = "none";
+        document.getElementById("app").style.display = "flex";
 
-function saveAuth(t, user) {
-  token = t;
-  me = user;
-  localStorage.setItem("zt_token", t);
-  localStorage.setItem("zt_user", JSON.stringify(user));
-  bootApp();
-}
+        // show admin nav if needed
+        const adminNav = document.createElement("button");
+        adminNav.className = "nav-btn";
+        adminNav.dataset.page = "admin";
+        adminNav.innerHTML = '<span class="nav-icon">👥</span>Admin';
+        adminNav.onclick = () => showPage("admin");
+        if (
+          me.role === "admin" &&
+          !document.querySelector('[data-page="admin"]')
+        ) {
+          document.getElementById("bottomNav").appendChild(adminNav);
+        }
 
-function logout() {
-  token = null; me = null;
-  localStorage.removeItem("zt_token");
-  localStorage.removeItem("zt_user");
-  document.getElementById("app").style.display = "none";
-  document.getElementById("authScreen").style.display = "flex";
-}
+        document.getElementById("userChip").textContent = me.name.split(" ")[0];
+        await loadHome();
+        checkGeofence();
+      }
 
-// ── Boot ────────────────────────────────────────────────────────
-async function bootApp() {
-  document.getElementById("authScreen").style.display = "none";
-  document.getElementById("app").style.display = "flex";
+      // ── Pages ───────────────────────────────────────────────────────
+      function showPage(page) {
+        document
+          .querySelectorAll(".page")
+          .forEach((p) => p.classList.remove("active"));
+        document
+          .querySelectorAll(".nav-btn")
+          .forEach((b) => b.classList.remove("active"));
+        document.getElementById("page-" + page).classList.add("active");
+        document
+          .querySelector(`[data-page="${page}"]`)
+          ?.classList.add("active");
 
-  // show admin nav if needed
-  const adminNav = document.createElement("button");
-  adminNav.className = "nav-btn";
-  adminNav.dataset.page = "admin";
-  adminNav.innerHTML = '<span class="nav-icon">👥</span>Admin';
-  adminNav.onclick = () => showPage("admin");
-  if (me.role === "admin" && !document.querySelector('[data-page="admin"]')) {
-    document.getElementById("bottomNav").appendChild(adminNav);
-  }
+        if (page === "home") loadHome();
+        if (page === "history") loadHistory();
+        if (page === "vacation") loadVacation();
+        if (page === "settings") renderSettings();
+        if (page === "admin") loadAdmin();
+      }
 
-  document.getElementById("userChip").textContent = me.name.split(" ")[0];
-  await loadProjects();
-  await loadHome();
-  checkGeofence();
-}
+      // ── Home / Today ─────────────────────────────────────────────────
+      async function loadHome() {
+        try {
+          todayData = await api("GET", "/time/today");
+          renderHome();
+        } catch (e) {
+          console.error(e);
+        }
+      }
 
-// ── Pages ───────────────────────────────────────────────────────
-function showPage(page) {
-  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-  document.getElementById("page-" + page).classList.add("active");
-  document.querySelector(`[data-page="${page}"]`)?.classList.add("active");
+      function renderHome() {
+        const { status, entry, breaks } = todayData || {
+          status: "out",
+          entry: null,
+          breaks: [],
+        };
+        const onBreak = breaks.some((b) => !b.end_time);
+        const el = document.getElementById("homeContent");
 
-  if (page === "home") loadHome();
-  if (page === "history") loadHistory();
-  if (page === "vacation") loadVacation();
-  if (page === "projects") loadProjects().then(renderProjects);
-  if (page === "settings") renderSettings();
-  if (page === "admin") loadAdmin();
-}
+        // compute live elapsed
+        let checkinTs = entry ? new Date(entry.check_in) : null;
+        let breakMs = (breaks || []).reduce((s, b) => {
+          if (b.end_time)
+            return s + (new Date(b.end_time) - new Date(b.start_time));
+          return s + (Date.now() - new Date(b.start_time));
+        }, 0);
 
-// ── Home / Today ─────────────────────────────────────────────────
-async function loadHome() {
-  try {
-    todayData = await api("GET", "/time/today");
-    renderHome();
-  } catch (e) { console.error(e); }
-}
+        const badgeHtml =
+          status === "in"
+            ? `<span class="status-badge ${onBreak ? "pause" : "in"}"><span class="dot ${onBreak ? "" : "pulse"}"></span>${onBreak ? "Pause" : "Eingecheckt"}</span>`
+            : `<span class="status-badge out"><span class="dot"></span>Nicht eingecheckt</span>`;
 
-function renderHome() {
-  const { status, entry, breaks } = todayData || { status: "out", entry: null, breaks: [] };
-  const onBreak = breaks.some(b => !b.end_time);
-  const el = document.getElementById("homeContent");
-
-  // compute live elapsed
-  let checkinTs = entry ? new Date(entry.check_in) : null;
-  let breakMs = (breaks || []).reduce((s, b) => {
-    if (b.end_time) return s + (new Date(b.end_time) - new Date(b.start_time));
-    return s + (Date.now() - new Date(b.start_time));
-  }, 0);
-
-  const badgeHtml = status === "in"
-    ? `<span class="status-badge ${onBreak ? "pause" : "in"}"><span class="dot ${onBreak ? "" : "pulse"}"></span>${onBreak ? "Pause" : "Eingecheckt"}</span>`
-    : `<span class="status-badge out"><span class="dot"></span>Nicht eingecheckt</span>`;
-
-  el.innerHTML = `
+        el.innerHTML = `
     <div style="margin-bottom:.75rem">${badgeHtml}</div>
 
-    ${status === "in" ? `
+    ${
+      status === "in"
+        ? `
       <div class="card">
         <div class="live-timer" id="liveTimer">–</div>
         <div class="timer-sub">Nettoarbeitszeit heute</div>
-        ${entry.project_name ? `<div style="margin-top:.5rem;text-align:center"><span class="tag" style="background:${entry.project_color}30;color:${entry.project_color}">${entry.project_name}</span></div>` : ""}
       </div>
 
       <div class="action-area">
-        ${onBreak
-          ? `<button class="big-btn big-btn-break-end" onclick="endBreak()">☕ Pause beenden</button>`
-          : `<button class="big-btn big-btn-break" onclick="startBreak()">☕ Pause</button>`
+        ${
+          onBreak
+            ? `<button class="big-btn big-btn-break-end" onclick="endBreak()">☕ Pause beenden</button>`
+            : `<button class="big-btn big-btn-break" onclick="startBreak()">☕ Pause</button>`
         }
         <button class="big-btn big-btn-out" onclick="doCheckout()">⏹ Check-Out</button>
       </div>
@@ -519,142 +1000,208 @@ function renderHome() {
           <div class="stat-chip"><div class="val" id="statSoll">${me.daily_hours || 8}h</div><div class="lbl">Soll</div></div>
         </div>
       </div>
-    ` : `
+    `
+        : `
       <div class="action-area">
         <button class="big-btn big-btn-in" onclick="doCheckin()">▶ Check-In</button>
       </div>
-      ${entry ? `
+      ${
+        entry
+          ? `
         <div class="card">
           <div class="card-title">Letzte Session</div>
           <div style="font-size:14px;color:var(--muted)">
             ${fmtTime(entry.check_in)} – ${fmtTime(entry.check_out)} · ${fmtNet(entry, breaks)}h netto
           </div>
         </div>
-      ` : ""}
-    `}
+      `
+          : ""
+      }
+    `
+    }
   `;
 
-  clearInterval(timerInterval);
-  if (status === "in" && checkinTs) {
-    const tick = () => {
-      const now = Date.now();
-      let currentBreakMs = (breaks || []).reduce((s, b) => {
-        if (b.end_time) return s + (new Date(b.end_time) - new Date(b.start_time));
-        return s + (now - new Date(b.start_time));
-      }, 0);
-      const netMs = now - checkinTs - currentBreakMs;
-      const netH = Math.floor(netMs / 3600000);
-      const netM = Math.floor((netMs % 3600000) / 60000);
-      const netS = Math.floor((netMs % 60000) / 1000);
-      const timer = document.getElementById("liveTimer");
-      if (timer) timer.textContent = `${pad(netH)}:${pad(netM)}:${pad(netS)}`;
+        clearInterval(timerInterval);
+        if (status === "in" && checkinTs) {
+          const tick = () => {
+            const now = Date.now();
+            let currentBreakMs = (breaks || []).reduce((s, b) => {
+              if (b.end_time)
+                return s + (new Date(b.end_time) - new Date(b.start_time));
+              return s + (now - new Date(b.start_time));
+            }, 0);
+            const netMs = now - checkinTs - currentBreakMs;
+            const netH = Math.floor(netMs / 3600000);
+            const netM = Math.floor((netMs % 3600000) / 60000);
+            const netS = Math.floor((netMs % 60000) / 1000);
+            const timer = document.getElementById("liveTimer");
+            if (timer)
+              timer.textContent = `${pad(netH)}:${pad(netM)}:${pad(netS)}`;
 
-      const breakH = Math.floor(currentBreakMs / 3600000);
-      const breakM = Math.floor((currentBreakMs % 3600000) / 60000);
-      const sn = document.getElementById("statNet");
-      const sb = document.getElementById("statBreak");
-      if (sn) sn.textContent = `${pad(netH)}:${pad(netM)}`;
-      if (sb) sb.textContent = `${breakH}:${pad(breakM)}`;
-    };
-    tick();
-    timerInterval = setInterval(tick, 1000);
-  }
-}
+            const breakH = Math.floor(currentBreakMs / 3600000);
+            const breakM = Math.floor((currentBreakMs % 3600000) / 60000);
+            const sn = document.getElementById("statNet");
+            const sb = document.getElementById("statBreak");
+            if (sn) sn.textContent = `${pad(netH)}:${pad(netM)}`;
+            if (sb) sb.textContent = `${breakH}:${pad(breakM)}`;
+          };
+          tick();
+          timerInterval = setInterval(tick, 1000);
+        }
+      }
 
-function pad(n) { return String(n).padStart(2, "0"); }
-function fmtTime(ts) { if (!ts) return "–"; return new Date(ts).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" }); }
-function fmtDate(ts) { if (!ts) return "–"; return new Date(ts).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Berlin" }); }
-function fmtNet(entry, breaks) {
-  if (!entry.check_out) return "–";
-  const gross = new Date(entry.check_out) - new Date(entry.check_in);
-  const breakMs = (breaks || []).reduce((s, b) => b.end_time ? s + (new Date(b.end_time) - new Date(b.start_time)) : s, 0);
-  const net = Math.max(0, gross - breakMs);
-  return (net / 3600000).toFixed(2).replace(".", ",");
-}
+      function pad(n) {
+        return String(n).padStart(2, "0");
+      }
+      function fmtTime(ts) {
+        if (!ts) return "–";
+        return new Date(ts).toLocaleTimeString("de-DE", {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "Europe/Berlin",
+        });
+      }
+      function fmtDate(ts) {
+        if (!ts) return "–";
+        return new Date(ts).toLocaleDateString("de-DE", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          timeZone: "Europe/Berlin",
+        });
+      }
+      function fmtNet(entry, breaks) {
+        if (!entry.check_out) return "–";
+        const gross = new Date(entry.check_out) - new Date(entry.check_in);
+        const breakMs = (breaks || []).reduce(
+          (s, b) =>
+            b.end_time
+              ? s + (new Date(b.end_time) - new Date(b.start_time))
+              : s,
+          0,
+        );
+        const net = Math.max(0, gross - breakMs);
+        return (net / 3600000).toFixed(2).replace(".", ",");
+      }
 
-// ── Check-in / out ──────────────────────────────────────────────
-async function doCheckin() {
-  const projectOptions = projects.length
-    ? `<div class="form-group"><label>Projekt (optional)</label>
-        <select id="ciProject">
-          <option value="">– Kein Projekt –</option>
-          ${projects.map(p => `<option value="${p.id}">${p.name}</option>`).join("")}
-        </select></div>`
-    : "";
-
-  showModal(`
+      // ── Check-in / out ──────────────────────────────────────────────
+      async function doCheckin() {
+        showModal(`
     <div class="modal-title">▶ Check-In</div>
-    ${projectOptions}
     <div class="form-group"><label>Notiz (optional)</label><input type="text" id="ciNote" placeholder="z.B. Home Office" /></div>
     <button class="btn btn-green" onclick="confirmCheckin()">Einchecken ✓</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
-}
+      }
 
-async function confirmCheckin() {
-  const project_id = document.getElementById("ciProject")?.value || null;
-  const notes = document.getElementById("ciNote")?.value || null;
-  try {
-    await api("POST", "/time/checkin", { project_id: project_id || undefined, notes: notes || undefined });
-    closeModal();
-    await loadHome();
-  } catch (e) { alert(e.message); }
-}
+      async function confirmCheckin() {
+        const notes = document.getElementById("ciNote")?.value || null;
+        try {
+          await api("POST", "/time/checkin", {
+            notes: notes || undefined,
+          });
+          closeModal();
+          await loadHome();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-async function doCheckout() {
-  try {
-    await api("POST", "/time/checkout", {});
-    await loadHome();
-  } catch (e) { alert(e.message); }
-}
+      async function doCheckout() {
+        try {
+          await api("POST", "/time/checkout", {});
+          await loadHome();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-async function startBreak() {
-  try {
-    await api("POST", "/time/break/start", {});
-    await loadHome();
-  } catch (e) { alert(e.message); }
-}
+      async function startBreak() {
+        try {
+          await api("POST", "/time/break/start", {});
+          await loadHome();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-async function endBreak() {
-  try {
-    await api("POST", "/time/break/end", {});
-    await loadHome();
-  } catch (e) { alert(e.message); }
-}
+      async function endBreak() {
+        try {
+          await api("POST", "/time/break/end", {});
+          await loadHome();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-// ── Geofencing ──────────────────────────────────────────────────
-function checkGeofence() {
-  if (!me.office_lat || !me.office_lng) return;
-  if (!navigator.geolocation) return;
-  navigator.geolocation.getCurrentPosition((pos) => {
-    const dist = haversine(pos.coords.latitude, pos.coords.longitude, me.office_lat, me.office_lng);
-    const banner = document.getElementById("geoBanner");
-    if (dist <= (me.office_radius || 200) && todayData?.status === "out") {
-      banner.style.display = "flex";
-      banner.onclick = () => { banner.style.display = "none"; doCheckin(); };
-    }
-  }, () => {});
-}
+      // ── Geofencing ──────────────────────────────────────────────────
+      function checkGeofence() {
+        if (!me.office_lat || !me.office_lng) return;
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const dist = haversine(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              me.office_lat,
+              me.office_lng,
+            );
+            const banner = document.getElementById("geoBanner");
+            if (
+              dist <= (me.office_radius || 200) &&
+              todayData?.status === "out"
+            ) {
+              banner.style.display = "flex";
+              banner.onclick = () => {
+                banner.style.display = "none";
+                doCheckin();
+              };
+            }
+          },
+          () => {},
+        );
+      }
 
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
+      function haversine(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const dLat = ((lat2 - lat1) * Math.PI) / 180;
+        const dLon = ((lon2 - lon1) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
 
-// ── History ─────────────────────────────────────────────────────
-async function loadHistory() {
-  const data = await api("GET", `/time/month/${historyYear}/${historyMon}`);
-  const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
-  document.getElementById("historyMonthLabel").textContent = `${MONTHS[historyMon-1]} ${historyYear}`;
+      // ── History ─────────────────────────────────────────────────────
+      async function loadHistory() {
+        const data = await api(
+          "GET",
+          `/time/month/${historyYear}/${historyMon}`,
+        );
+        const MONTHS = [
+          "Jan",
+          "Feb",
+          "Mär",
+          "Apr",
+          "Mai",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Okt",
+          "Nov",
+          "Dez",
+        ];
+        document.getElementById("historyMonthLabel").textContent =
+          `${MONTHS[historyMon - 1]} ${historyYear}`;
 
-  const s = data.summary;
-  const otClass = s.overtime >= 0 ? "positive" : "negative";
-  const otSign = s.overtime >= 0 ? "+" : "";
+        const s = data.summary;
+        const otClass = s.overtime >= 0 ? "positive" : "negative";
+        const otSign = s.overtime >= 0 ? "+" : "";
 
-  let html = `
+        let html = `
     <div class="card">
       <div class="stat-row">
         <div class="stat-chip"><div class="val">${s.totalNet.toFixed(1)}h</div><div class="lbl">Gesamt</div></div>
@@ -669,117 +1216,161 @@ async function loadHistory() {
     </div>
   `;
 
-  if (!data.entries.length) {
-    html += '<div class="empty">Keine Einträge in diesem Monat</div>';
-  } else {
-    for (const e of data.entries) {
-      const d = new Date(e.check_in);
-      const dayStr = d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", timeZone: "Europe/Berlin" });
-      const net = parseFloat(e.net_hours).toFixed(2).replace(".", ",");
-      html += `
+        if (!data.entries.length) {
+          html += '<div class="empty">Keine Einträge in diesem Monat</div>';
+        } else {
+          for (const e of data.entries) {
+            const d = new Date(e.check_in);
+            const dayStr = d.toLocaleDateString("de-DE", {
+              weekday: "short",
+              day: "numeric",
+              timeZone: "Europe/Berlin",
+            });
+            const net = parseFloat(e.net_hours).toFixed(2).replace(".", ",");
+            html += `
         <div class="entry-row" onclick="showEntryModal(${JSON.stringify(e).replace(/"/g, "&quot;")})">
-          ${e.project_color ? `<div class="project-dot" style="background:${e.project_color}"></div>` : ""}
           <div class="entry-date">${dayStr}</div>
           <div class="entry-times">
             <div class="t">${fmtTime(e.check_in)} – ${fmtTime(e.check_out) || "läuft"}</div>
-            <div class="sub">${e.project_name || "Kein Projekt"}${e.notes ? " · " + e.notes : ""}</div>
+            ${e.notes ? `<div class="sub">${e.notes}</div>` : ""}
           </div>
           <div class="entry-hours">${net}h</div>
         </div>`;
-    }
-  }
-  document.getElementById("historyContent").innerHTML = html;
-}
+          }
+        }
+        document.getElementById("historyContent").innerHTML = html;
+      }
 
-function historyMonth(dir) {
-  historyMon += dir;
-  if (historyMon > 12) { historyMon = 1; historyYear++; }
-  if (historyMon < 1) { historyMon = 12; historyYear--; }
-  loadHistory();
-}
+      function historyMonth(dir) {
+        historyMon += dir;
+        if (historyMon > 12) {
+          historyMon = 1;
+          historyYear++;
+        }
+        if (historyMon < 1) {
+          historyMon = 12;
+          historyYear--;
+        }
+        loadHistory();
+      }
 
-function showEntryModal(entry) {
-  const fmtInput = (ts) => ts ? new Date(ts).toISOString().slice(0, 16) : "";
-  showModal(`
+      function showEntryModal(entry) {
+        const fmtInput = (ts) =>
+          ts ? new Date(ts).toISOString().slice(0, 16) : "";
+        showModal(`
     <div class="modal-title">Eintrag bearbeiten</div>
     <div class="form-group"><label>Check-In</label><input type="datetime-local" id="editIn" value="${fmtInput(entry.check_in)}" /></div>
     <div class="form-group"><label>Check-Out</label><input type="datetime-local" id="editOut" value="${fmtInput(entry.check_out)}" /></div>
-    <div class="form-group"><label>Projekt</label>
-      <select id="editProject">
-        <option value="">– Kein Projekt –</option>
-        ${projects.map(p => `<option value="${p.id}" ${p.id == entry.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
-      </select>
-    </div>
     <div class="form-group"><label>Notiz</label><input type="text" id="editNote" value="${entry.notes || ""}" /></div>
     <button class="btn btn-primary" onclick="saveEntry(${entry.id})">Speichern</button>
     <button class="btn btn-red btn-sm" onclick="deleteEntry(${entry.id})">Eintrag löschen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
-}
+      }
 
-async function saveEntry(id) {
-  const check_in = new Date(document.getElementById("editIn").value).toISOString();
-  const check_out = document.getElementById("editOut").value ? new Date(document.getElementById("editOut").value).toISOString() : null;
-  const project_id = document.getElementById("editProject").value || null;
-  const notes = document.getElementById("editNote").value || null;
-  try {
-    await api("PUT", `/time/${id}`, { check_in, check_out, project_id, notes });
-    closeModal(); loadHistory();
-  } catch (e) { alert(e.message); }
-}
+      async function saveEntry(id) {
+        const check_in = new Date(
+          document.getElementById("editIn").value,
+        ).toISOString();
+        const check_out = document.getElementById("editOut").value
+          ? new Date(document.getElementById("editOut").value).toISOString()
+          : null;
+        const notes = document.getElementById("editNote").value || null;
+        try {
+          await api("PUT", `/time/${id}`, {
+            check_in,
+            check_out,
+            notes,
+          });
+          closeModal();
+          loadHistory();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-async function deleteEntry(id) {
-  if (!confirm("Eintrag wirklich löschen?")) return;
-  await api("DELETE", `/time/${id}`, {});
-  closeModal(); loadHistory();
-}
+      async function deleteEntry(id) {
+        if (!confirm("Eintrag wirklich löschen?")) return;
+        await api("DELETE", `/time/${id}`, {});
+        closeModal();
+        loadHistory();
+      }
 
-// ── Vacation ────────────────────────────────────────────────────
-let vacData = null;
+      // ── Vacation ────────────────────────────────────────────────────
+      let vacData = null;
 
-async function loadVacation() {
-  const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
-  document.getElementById("vacMonthLabel").textContent = `${MONTHS[vacMon-1]} ${vacYear}`;
-  vacData = await api("GET", `/absences/${vacYear}`);
-  renderVacation();
-}
+      async function loadVacation() {
+        const MONTHS = [
+          "Januar",
+          "Februar",
+          "März",
+          "April",
+          "Mai",
+          "Juni",
+          "Juli",
+          "August",
+          "September",
+          "Oktober",
+          "November",
+          "Dezember",
+        ];
+        document.getElementById("vacMonthLabel").textContent =
+          `${MONTHS[vacMon - 1]} ${vacYear}`;
+        vacData = await api("GET", `/absences/${vacYear}`);
+        renderVacation();
+      }
 
-function vacMonth(dir) {
-  vacMon += dir;
-  if (vacMon > 12) { vacMon = 1; vacYear++; }
-  if (vacMon < 1) { vacMon = 12; vacYear--; }
-  loadVacation();
-}
+      function vacMonth(dir) {
+        vacMon += dir;
+        if (vacMon > 12) {
+          vacMon = 1;
+          vacYear++;
+        }
+        if (vacMon < 1) {
+          vacMon = 12;
+          vacYear--;
+        }
+        loadVacation();
+      }
 
-function renderVacation() {
-  if (!vacData) return;
-  const absMap = {};
-  vacData.absences.forEach(a => absMap[a.date.split("T")[0]] = a);
+      function renderVacation() {
+        if (!vacData) return;
+        const absMap = {};
+        vacData.absences.forEach((a) => (absMap[a.date.split("T")[0]] = a));
 
-  const today = new Date().toISOString().split("T")[0];
-  const firstDay = new Date(vacYear, vacMon - 1, 1).getDay();
-  const startOffset = (firstDay + 6) % 7; // Mon=0
-  const daysInMonth = new Date(vacYear, vacMon, 0).getDate();
+        const today = new Date().toISOString().split("T")[0];
+        const firstDay = new Date(vacYear, vacMon - 1, 1).getDay();
+        const startOffset = (firstDay + 6) % 7; // Mon=0
+        const daysInMonth = new Date(vacYear, vacMon, 0).getDate();
 
-  let calHtml = ['Mo','Di','Mi','Do','Fr','Sa','So'].map(d => `<div class="cal-header">${d}</div>`).join("");
-  for (let i = 0; i < startOffset; i++) calHtml += `<div class="cal-day empty"></div>`;
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${vacYear}-${String(vacMon).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    const abs = absMap[dateStr];
-    const dow = new Date(vacYear, vacMon - 1, d).getDay();
-    const isWeekend = dow === 0 || dow === 6;
-    const cls = [
-      "cal-day",
-      dateStr === today ? "today" : "",
-      abs ? abs.type : "",
-      isWeekend && !abs ? "weekend" : "",
-    ].filter(Boolean).join(" ");
-    calHtml += `<div class="${cls}" onclick="toggleAbsence('${dateStr}')">${d}</div>`;
-  }
+        let calHtml = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+          .map((d) => `<div class="cal-header">${d}</div>`)
+          .join("");
+        for (let i = 0; i < startOffset; i++)
+          calHtml += `<div class="cal-day empty"></div>`;
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${vacYear}-${String(vacMon).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const abs = absMap[dateStr];
+          const dow = new Date(vacYear, vacMon - 1, d).getDay();
+          const isWeekend = dow === 0 || dow === 6;
+          const cls = [
+            "cal-day",
+            dateStr === today ? "today" : "",
+            abs ? abs.type : "",
+            isWeekend && !abs ? "weekend" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          calHtml += `<div class="${cls}" onclick="toggleAbsence('${dateStr}')">${d}</div>`;
+        }
 
-  const typeLabels = { vacation: "🏖️ Urlaub", sick: "🤒 Krank", holiday: "🎉 Feiertag" };
+        const typeLabels = {
+          vacation: "🏖️ Urlaub",
+          sick: "🤒 Krank",
+          holiday: "🎉 Feiertag",
+        };
 
-  document.getElementById("vacContent").innerHTML = `
+        document.getElementById("vacContent").innerHTML = `
     <div class="card">
       <div class="stat-row">
         <div class="stat-chip"><div class="val">${vacData.vacation_total}</div><div class="lbl">Tage gesamt</div></div>
@@ -789,133 +1380,76 @@ function renderVacation() {
     </div>
 
     <div class="absence-types">
-      ${["vacation","sick","holiday"].map(t =>
-        `<div class="absence-chip ${t} ${selectedAbsenceType === t ? "selected" : ""}" onclick="selectAbsenceType('${t}')">${typeLabels[t]}</div>`
-      ).join("")}
+      ${["vacation", "sick", "holiday"]
+        .map(
+          (t) =>
+            `<div class="absence-chip ${t} ${selectedAbsenceType === t ? "selected" : ""}" onclick="selectAbsenceType('${t}')">${typeLabels[t]}</div>`,
+        )
+        .join("")}
     </div>
 
     <div class="calendar-grid">${calHtml}</div>
 
     <div class="card">
-      <div class="card-title">Einträge ${String(vacMon).padStart(2,"0")}/${vacYear}</div>
-      ${vacData.absences.filter(a => {
-        const d = new Date(a.date);
-        return d.getFullYear() === vacYear && d.getMonth() + 1 === vacMon;
-      }).map(a => `
+      <div class="card-title">Einträge ${String(vacMon).padStart(2, "0")}/${vacYear}</div>
+      ${
+        vacData.absences
+          .filter((a) => {
+            const d = new Date(a.date);
+            return d.getFullYear() === vacYear && d.getMonth() + 1 === vacMon;
+          })
+          .map(
+            (a) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="flex:1;font-size:14px">${new Date(a.date).toLocaleDateString("de-DE",{weekday:"short",day:"numeric",month:"short"})} – ${typeLabels[a.type]}</div>
+          <div style="flex:1;font-size:14px">${new Date(a.date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} – ${typeLabels[a.type]}</div>
           <button class="btn btn-secondary btn-sm" onclick="deleteAbsence(${a.id})">✕</button>
         </div>
-      `).join("") || "<div style='color:var(--muted);font-size:13px'>Keine Einträge</div>"}
+      `,
+          )
+          .join("") ||
+        "<div style='color:var(--muted);font-size:13px'>Keine Einträge</div>"
+      }
     </div>
   `;
-}
+      }
 
-function selectAbsenceType(type) {
-  selectedAbsenceType = type;
-  renderVacation();
-}
+      function selectAbsenceType(type) {
+        selectedAbsenceType = type;
+        renderVacation();
+      }
 
-async function toggleAbsence(dateStr) {
-  const existing = vacData.absences.find(a => a.date.split("T")[0] === dateStr);
-  if (existing) {
-    if (existing.type === selectedAbsenceType) {
-      await api("DELETE", `/absences/${existing.id}`, {});
-    } else {
-      await api("POST", "/absences", { date: dateStr, type: selectedAbsenceType });
-    }
-  } else {
-    await api("POST", "/absences", { date: dateStr, type: selectedAbsenceType });
-  }
-  vacData = await api("GET", `/absences/${vacYear}`);
-  renderVacation();
-}
+      async function toggleAbsence(dateStr) {
+        const existing = vacData.absences.find(
+          (a) => a.date.split("T")[0] === dateStr,
+        );
+        if (existing) {
+          if (existing.type === selectedAbsenceType) {
+            await api("DELETE", `/absences/${existing.id}`, {});
+          } else {
+            await api("POST", "/absences", {
+              date: dateStr,
+              type: selectedAbsenceType,
+            });
+          }
+        } else {
+          await api("POST", "/absences", {
+            date: dateStr,
+            type: selectedAbsenceType,
+          });
+        }
+        vacData = await api("GET", `/absences/${vacYear}`);
+        renderVacation();
+      }
 
-async function deleteAbsence(id) {
-  await api("DELETE", `/absences/${id}`, {});
-  vacData = await api("GET", `/absences/${vacYear}`);
-  renderVacation();
-}
+      async function deleteAbsence(id) {
+        await api("DELETE", `/absences/${id}`, {});
+        vacData = await api("GET", `/absences/${vacYear}`);
+        renderVacation();
+      }
 
-// ── Projects ─────────────────────────────────────────────────────
-async function loadProjects() {
-  projects = await api("GET", "/projects");
-  return projects;
-}
-
-function renderProjects() {
-  const el = document.getElementById("projectsContent");
-  if (!projects.length) {
-    el.innerHTML = '<div class="empty">Noch keine Projekte angelegt</div>';
-    return;
-  }
-  el.innerHTML = projects.map(p => `
-    <div class="project-row">
-      <div class="project-color" style="background:${p.color}"></div>
-      <div>
-        <div class="project-name">${p.name}</div>
-        ${p.external_id ? `<div class="project-ext">Externe ID: ${p.external_id}</div>` : ""}
-      </div>
-      <button class="btn btn-secondary btn-sm" onclick="editProject(${JSON.stringify(p).replace(/"/g,"&quot;")})">✏️</button>
-    </div>
-  `).join("");
-}
-
-function showAddProject() {
-  showModal(`
-    <div class="modal-title">Projekt anlegen</div>
-    <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="Projektname" /></div>
-    <div class="form-group"><label>Farbe</label><input type="color" id="pColor" value="#ff2d78" /></div>
-    <div class="form-group"><label>Externe ID (für API-Export, optional)</label><input type="text" id="pExtId" placeholder="z.B. PROJ-123" /></div>
-    <button class="btn btn-primary" onclick="createProject()">Anlegen</button>
-    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
-  `);
-}
-
-async function createProject() {
-  const name = document.getElementById("pName").value;
-  const color = document.getElementById("pColor").value;
-  const external_id = document.getElementById("pExtId").value;
-  if (!name) return alert("Name fehlt");
-  await api("POST", "/projects", { name, color, external_id: external_id || undefined });
-  closeModal();
-  await loadProjects();
-  renderProjects();
-}
-
-function editProject(p) {
-  showModal(`
-    <div class="modal-title">Projekt bearbeiten</div>
-    <div class="form-group"><label>Name</label><input type="text" id="epName" value="${p.name}" /></div>
-    <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
-    <div class="form-group"><label>Externe ID</label><input type="text" id="epExtId" value="${p.external_id || ""}" /></div>
-    <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
-    <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
-    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
-  `);
-}
-
-async function updateProject(id) {
-  const name = document.getElementById("epName").value;
-  const color = document.getElementById("epColor").value;
-  const external_id = document.getElementById("epExtId").value;
-  await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
-  closeModal();
-  await loadProjects();
-  renderProjects();
-}
-
-async function archiveProject(id) {
-  if (!confirm("Projekt archivieren?")) return;
-  await api("DELETE", `/projects/${id}`, {});
-  closeModal();
-  await loadProjects();
-  renderProjects();
-}
-
-// ── Settings ─────────────────────────────────────────────────────
-function renderSettings() {
-  document.getElementById("settingsContent").innerHTML = `
+      // ── Settings ─────────────────────────────────────────────────────
+      function renderSettings() {
+        document.getElementById("settingsContent").innerHTML = `
     <div class="section-title">Mein Profil</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div class="form-group"><label>Name</label><input type="text" id="sName" value="${me.name}" /></div>
@@ -946,103 +1480,115 @@ function renderSettings() {
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="changePassword()">Passwort ändern</button>
     </div>
 
-    <div class="section-title">API Export</div>
-    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
-      <div style="font-size:13px;color:var(--muted)">
-        Nutze folgenden Endpunkt um Zeiteinträge in deine Support-App zu exportieren:
-      </div>
-      <code style="font-size:12px;background:var(--bg3);padding:8px;border-radius:8px;display:block;word-break:break-all">
-        GET /api/export/entries?from=2026-08-01&to=2026-08-31
-      </code>
-      <div style="font-size:12px;color:var(--muted)">Mit Header: <code>Authorization: Bearer &lt;token&gt;</code></div>
-    </div>
-
     <div style="margin-top:1.5rem">
       <button class="btn btn-red" onclick="logout()">Ausloggen</button>
     </div>
   `;
-}
+      }
 
-async function saveProfile() {
-  const update = {
-    name: document.getElementById("sName").value,
-    daily_hours: parseFloat(document.getElementById("sHours").value),
-    vacation_days_per_year: parseInt(document.getElementById("sVac").value),
-    office_lat: parseFloat(document.getElementById("sLat").value) || null,
-    office_lng: parseFloat(document.getElementById("sLng").value) || null,
-    office_radius: parseInt(document.getElementById("sRadius").value) || 200,
-  };
-  try {
-    me = await api("PUT", "/auth/me", update);
-    localStorage.setItem("zt_user", JSON.stringify(me));
-    document.getElementById("userChip").textContent = me.name.split(" ")[0];
-    alert("Gespeichert ✓");
-  } catch (e) { alert(e.message); }
-}
+      async function saveProfile() {
+        const update = {
+          name: document.getElementById("sName").value,
+          daily_hours: parseFloat(document.getElementById("sHours").value),
+          vacation_days_per_year: parseInt(
+            document.getElementById("sVac").value,
+          ),
+          office_lat: parseFloat(document.getElementById("sLat").value) || null,
+          office_lng: parseFloat(document.getElementById("sLng").value) || null,
+          office_radius:
+            parseInt(document.getElementById("sRadius").value) || 200,
+        };
+        try {
+          me = await api("PUT", "/auth/me", update);
+          localStorage.setItem("zt_user", JSON.stringify(me));
+          document.getElementById("userChip").textContent =
+            me.name.split(" ")[0];
+          alert("Gespeichert ✓");
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-async function geocodeAddress() {
-  const address = document.getElementById("sAddress").value.trim();
-  const resultEl = document.getElementById("geocodeResult");
-  if (!address) return alert("Bitte Adresse eingeben");
-  resultEl.textContent = "Suche...";
-  try {
-    const { lat, lng, display_name } = await api("GET", `/geocode?q=${encodeURIComponent(address)}`);
-    document.getElementById("sLat").value = lat.toFixed(7);
-    document.getElementById("sLng").value = lng.toFixed(7);
-    resultEl.textContent = "✓ " + display_name;
-  } catch (e) {
-    resultEl.textContent = "";
-    alert(e.message);
-  }
-}
+      async function geocodeAddress() {
+        const address = document.getElementById("sAddress").value.trim();
+        const resultEl = document.getElementById("geocodeResult");
+        if (!address) return alert("Bitte Adresse eingeben");
+        resultEl.textContent = "Suche...";
+        try {
+          const { lat, lng, display_name } = await api(
+            "GET",
+            `/geocode?q=${encodeURIComponent(address)}`,
+          );
+          document.getElementById("sLat").value = lat.toFixed(7);
+          document.getElementById("sLng").value = lng.toFixed(7);
+          resultEl.textContent = "✓ " + display_name;
+        } catch (e) {
+          resultEl.textContent = "";
+          alert(e.message);
+        }
+      }
 
-function useCurrentLocation() {
-  if (!navigator.geolocation) return alert("Geolocation nicht verfügbar");
-  navigator.geolocation.getCurrentPosition((pos) => {
-    document.getElementById("sLat").value = pos.coords.latitude.toFixed(7);
-    document.getElementById("sLng").value = pos.coords.longitude.toFixed(7);
-  }, () => alert("Standort nicht verfügbar"));
-}
+      function useCurrentLocation() {
+        if (!navigator.geolocation) return alert("Geolocation nicht verfügbar");
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            document.getElementById("sLat").value =
+              pos.coords.latitude.toFixed(7);
+            document.getElementById("sLng").value =
+              pos.coords.longitude.toFixed(7);
+          },
+          () => alert("Standort nicht verfügbar"),
+        );
+      }
 
-async function changePassword() {
-  const current_password = document.getElementById("sPwCur").value;
-  const new_password = document.getElementById("sPwNew").value;
-  try {
-    await api("PUT", "/auth/password", { current_password, new_password });
-    alert("Passwort geändert ✓");
-    document.getElementById("sPwCur").value = "";
-    document.getElementById("sPwNew").value = "";
-  } catch (e) { alert(e.message); }
-}
+      async function changePassword() {
+        const current_password = document.getElementById("sPwCur").value;
+        const new_password = document.getElementById("sPwNew").value;
+        try {
+          await api("PUT", "/auth/password", {
+            current_password,
+            new_password,
+          });
+          alert("Passwort geändert ✓");
+          document.getElementById("sPwCur").value = "";
+          document.getElementById("sPwNew").value = "";
+        } catch (e) {
+          alert(e.message);
+        }
+      }
 
-// ── Admin ────────────────────────────────────────────────────────
-async function loadAdmin() {
-  const users = await api("GET", "/admin/users");
-  document.getElementById("adminContent").innerHTML = `
+      // ── Admin ────────────────────────────────────────────────────────
+      async function loadAdmin() {
+        const users = await api("GET", "/admin/users");
+        document.getElementById("adminContent").innerHTML = `
     <div class="section-title">Alle Benutzer</div>
-    ${users.map(u => `
+    ${users
+      .map(
+        (u) => `
       <div class="card" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.5rem">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="flex:1">
             <div style="font-weight:700">${u.name}</div>
             <div style="font-size:12px;color:var(--muted)">${u.email} · ${u.role}</div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="editUser(${JSON.stringify(u).replace(/"/g,"&quot;")})">✏️</button>
+          <button class="btn btn-secondary btn-sm" onclick="editUser(${JSON.stringify(u).replace(/"/g, "&quot;")})">✏️</button>
         </div>
         <div style="font-size:12px;color:var(--muted)">${u.daily_hours}h/Tag · ${u.vacation_days_per_year} Urlaubstage</div>
       </div>
-    `).join("")}
+    `,
+      )
+      .join("")}
   `;
-}
+      }
 
-function editUser(u) {
-  showModal(`
+      function editUser(u) {
+        showModal(`
     <div class="modal-title">${u.name} bearbeiten</div>
     <div class="form-group"><label>Name</label><input type="text" id="auName" value="${u.name}" /></div>
     <div class="form-group"><label>Rolle</label>
       <select id="auRole">
-        <option value="user" ${u.role==="user"?"selected":""}>user</option>
-        <option value="admin" ${u.role==="admin"?"selected":""}>admin</option>
+        <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
+        <option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option>
       </select>
     </div>
     <div class="form-group"><label>Sollstunden/Tag</label><input type="number" id="auHours" value="${u.daily_hours}" step="0.5" /></div>
@@ -1051,46 +1597,55 @@ function editUser(u) {
     ${u.id !== me.id ? `<button class="btn btn-red btn-sm" onclick="deleteUser(${u.id})">Benutzer löschen</button>` : ""}
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
-}
+      }
 
-async function updateUser(id) {
-  const body = {
-    name: document.getElementById("auName").value,
-    role: document.getElementById("auRole").value,
-    daily_hours: parseFloat(document.getElementById("auHours").value),
-    vacation_days_per_year: parseInt(document.getElementById("auVac").value),
-  };
-  await api("PUT", `/admin/users/${id}`, body);
-  closeModal(); loadAdmin();
-}
+      async function updateUser(id) {
+        const body = {
+          name: document.getElementById("auName").value,
+          role: document.getElementById("auRole").value,
+          daily_hours: parseFloat(document.getElementById("auHours").value),
+          vacation_days_per_year: parseInt(
+            document.getElementById("auVac").value,
+          ),
+        };
+        await api("PUT", `/admin/users/${id}`, body);
+        closeModal();
+        loadAdmin();
+      }
 
-async function deleteUser(id) {
-  if (!confirm("Benutzer wirklich löschen? Alle Daten werden entfernt.")) return;
-  await api("DELETE", `/admin/users/${id}`, {});
-  closeModal(); loadAdmin();
-}
+      async function deleteUser(id) {
+        if (!confirm("Benutzer wirklich löschen? Alle Daten werden entfernt."))
+          return;
+        await api("DELETE", `/admin/users/${id}`, {});
+        closeModal();
+        loadAdmin();
+      }
 
-// ── Modal ────────────────────────────────────────────────────────
-function showModal(html) {
-  document.getElementById("modalInner").innerHTML = html;
-  document.getElementById("modal").style.display = "flex";
-}
-function closeModal(e) {
-  if (e && e.target !== document.getElementById("modal")) return;
-  document.getElementById("modal").style.display = "none";
-}
+      // ── Modal ────────────────────────────────────────────────────────
+      function showModal(html) {
+        document.getElementById("modalInner").innerHTML = html;
+        document.getElementById("modal").style.display = "flex";
+      }
+      function closeModal(e) {
+        if (e && e.target !== document.getElementById("modal")) return;
+        document.getElementById("modal").style.display = "none";
+      }
 
-// ── Keyboard ─────────────────────────────────────────────────────
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    if (document.getElementById("loginForm").style.display !== "none") doLogin();
-    else if (document.getElementById("registerForm").style.display !== "none") doRegister();
-  }
-  if (e.key === "Escape") closeModal();
-});
+      // ── Keyboard ─────────────────────────────────────────────────────
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          if (document.getElementById("loginForm").style.display !== "none")
+            doLogin();
+          else if (
+            document.getElementById("registerForm").style.display !== "none"
+          )
+            doRegister();
+        }
+        if (e.key === "Escape") closeModal();
+      });
 
-// ── Init ─────────────────────────────────────────────────────────
-if (token && me) bootApp();
-</script>
-</body>
+      // ── Init ─────────────────────────────────────────────────────────
+      if (token && me) bootApp();
+    </script>
+  </body>
 </html>
