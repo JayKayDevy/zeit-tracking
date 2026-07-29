@@ -18,6 +18,10 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+      rel="stylesheet"
+    />
     <style>
       *,
       *::before,
@@ -263,7 +267,14 @@
         color: var(--accent);
       }
       .nav-icon {
-        font-size: 20px;
+        font-family: "Material Symbols Outlined";
+        font-size: 22px;
+        font-weight: normal;
+        font-style: normal;
+        line-height: 1;
+      }
+      .nav-btn.active .nav-icon {
+        font-variation-settings: "FILL" 1;
       }
 
       /* ── Cards ─────────────────────────────────────────────── */
@@ -774,28 +785,28 @@
           onclick="showPage('home')"
           data-page="home"
         >
-          <span class="nav-icon">🕐</span>Heute
+          <span class="nav-icon">schedule</span>Heute
         </button>
         <button
           class="nav-btn"
           onclick="showPage('history')"
           data-page="history"
         >
-          <span class="nav-icon">📋</span>Verlauf
+          <span class="nav-icon">history</span>Verlauf
         </button>
         <button
           class="nav-btn"
           onclick="showPage('vacation')"
           data-page="vacation"
         >
-          <span class="nav-icon">🏖️</span>Urlaub
+          <span class="nav-icon">beach_access</span>Urlaub
         </button>
         <button
           class="nav-btn"
           onclick="showPage('settings')"
           data-page="settings"
         >
-          <span class="nav-icon">⚙️</span>Einst.
+          <span class="nav-icon">settings</span>Einst.
         </button>
       </nav>
     </div>
@@ -929,7 +940,7 @@
         const adminNav = document.createElement("button");
         adminNav.className = "nav-btn";
         adminNav.dataset.page = "admin";
-        adminNav.innerHTML = '<span class="nav-icon">👥</span>Admin';
+        adminNav.innerHTML = '<span class="nav-icon">group</span>Admin';
         adminNav.onclick = () => showPage("admin");
         if (
           me.role === "admin" &&
