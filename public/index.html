@@ -731,7 +731,7 @@
     <!-- ── App shell ──────────────────────────────────────────────── -->
     <div id="app">
       <div class="header">
-        <div class="logo">Zeit-Tracking<span>.saas.</span>do</div>
+        <div class="logo">zeit-tracking.<span>saas</span>.do</div>
         <div class="header-right">
           <div class="avatar-chip" id="userChip" onclick="showPage('settings')">
             –
@@ -825,6 +825,11 @@
       // ── State ───────────────────────────────────────────────────────
       let token = localStorage.getItem("zt_token");
       let me = JSON.parse(localStorage.getItem("zt_user") || "null");
+      const DEFAULT_ACCENT = "#c08552";
+      function applyAccentColor(color) {
+        document.documentElement.style.setProperty("--accent", color || DEFAULT_ACCENT);
+      }
+      applyAccentColor(me?.accent_color);
       let timerInterval = null;
       let todayData = null;
       let historyYear = new Date().getFullYear();
@@ -934,6 +939,7 @@
         try {
           me = await api("GET", "/auth/me");
           localStorage.setItem("zt_user", JSON.stringify(me));
+          applyAccentColor(me.accent_color);
         } catch (e) {}
 
         // show admin nav if needed
@@ -1425,7 +1431,8 @@
           ]
             .filter(Boolean)
             .join(" ");
-          const title = abs?.type === "holiday" && abs.notes ? ` title="${abs.notes}"` : "";
+          const title =
+            abs?.type === "holiday" && abs.notes ? ` title="${abs.notes}"` : "";
           calHtml += `<div class="${cls}"${title} onclick="toggleAbsence('${dateStr}')">${d}</div>`;
         }
 
@@ -1591,6 +1598,14 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
+    <div class="section-title">🎨 Design</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div class="form-group"><label>Akzentfarbe</label>
+        <input type="color" id="sAccent" value="${me.accent_color || DEFAULT_ACCENT}" oninput="applyAccentColor(this.value)" />
+      </div>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+    </div>
+
     <div class="section-title">📍 Büro-Standort (Geofencing)</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div style="font-size:13px;color:var(--muted)">
@@ -1659,6 +1674,7 @@
           office_radius:
             parseInt(document.getElementById("sRadius").value) || 200,
           bundesland: document.getElementById("sBundesland").value || null,
+          accent_color: document.getElementById("sAccent").value,
         };
         try {
           me = await api("PUT", "/auth/me", update);
