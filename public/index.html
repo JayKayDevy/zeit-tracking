@@ -673,7 +673,7 @@
   <body>
     <!-- ── Auth screen ────────────────────────────────────────────── -->
     <div id="authScreen">
-      <div class="auth-logo">Zeit-Tracking<span>.saas.</span>do</div>
+      <div class="auth-logo">zeit-tracking.<span>saas</span>.do</div>
       <div class="auth-sub">Zeiterfassung für dein Team</div>
 
       <div class="auth-tabs">
@@ -1425,7 +1425,8 @@
           ]
             .filter(Boolean)
             .join(" ");
-          calHtml += `<div class="${cls}" onclick="toggleAbsence('${dateStr}')">${d}</div>`;
+          const title = abs?.type === "holiday" && abs.notes ? ` title="${abs.notes}"` : "";
+          calHtml += `<div class="${cls}"${title} onclick="toggleAbsence('${dateStr}')">${d}</div>`;
         }
 
         const typeLabels = {
@@ -1465,7 +1466,7 @@
           .map(
             (a) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="flex:1;font-size:14px">${new Date(a.date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} – ${typeLabels[a.type]}</div>
+          <div style="flex:1;font-size:14px">${new Date(a.date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} – ${a.type === "holiday" && a.notes ? "🎉 " + a.notes : typeLabels[a.type]}</div>
           <button class="btn btn-secondary btn-sm" onclick="deleteAbsence(${a.id})">✕</button>
         </div>
       `,

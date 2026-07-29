@@ -245,8 +245,9 @@ async function getValidAccessToken(userId) {
   return data.access_token;
 }
 
-function absenceEventSummary(type) {
-  return { vacation: "🏖️ Urlaub", sick: "🤒 Krank", holiday: "🎉 Feiertag" }[type] || type;
+function absenceEventSummary(absence) {
+  if (absence.type === "holiday" && absence.notes) return `🎉 ${absence.notes}`;
+  return { vacation: "🏖️ Urlaub", sick: "🤒 Krank", holiday: "🎉 Feiertag" }[absence.type] || absence.type;
 }
 
 async function syncAbsenceToGoogle(userId, absence) {
@@ -256,7 +257,7 @@ async function syncAbsenceToGoogle(userId, absence) {
   const nextDay = new Date(absence.date);
   nextDay.setDate(nextDay.getDate() + 1);
   const body = JSON.stringify({
-    summary: absenceEventSummary(absence.type),
+    summary: absenceEventSummary(absence),
     start: { date: absence.date.toISOString().split("T")[0] },
     end: { date: nextDay.toISOString().split("T")[0] },
   });
