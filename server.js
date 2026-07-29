@@ -83,6 +83,8 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_access_token TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_token_expiry TIMESTAMP;
       ALTER TABLE absences ADD COLUMN IF NOT EXISTS google_event_id VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS bundesland VARCHAR(20);
+      ALTER TABLE absences ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN DEFAULT false;
     `);
     console.log("DB ready");
   } finally {
@@ -138,7 +140,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query(
-      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
+      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
       [email]
     );
     const user = result.rows[0];
@@ -155,20 +157,20 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
 });
 
 app.put("/api/auth/me", auth, async (req, res) => {
-  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius } = req.body;
+  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius, bundesland } = req.body;
   await pool.query(
-    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6 WHERE id=$7",
-    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, req.user.id]
+    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6,bundesland=$7 WHERE id=$8",
+    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, req.user.id]
   );
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -374,6 +376,100 @@ app.get("/api/google/events", auth, async (req, res) => {
   res.json(events);
 });
 
+// ── Feiertage ─────────────────────────────────────────────────────────────────
+
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function bussUndBettag(year) {
+  const nov23 = new Date(Date.UTC(year, 10, 23));
+  const diff = ((nov23.getUTCDay() - 3 + 7) % 7) || 7;
+  return addDays(nov23, -diff);
+}
+
+const iso = (d) => d.toISOString().split("T")[0];
+
+function germanHolidays(year, bundesland) {
+  const easter = easterSunday(year);
+
+  const holidays = [
+    { date: iso(new Date(Date.UTC(year, 0, 1))), name: "Neujahr" },
+    { date: iso(addDays(easter, -2)), name: "Karfreitag" },
+    { date: iso(addDays(easter, 1)), name: "Ostermontag" },
+    { date: iso(new Date(Date.UTC(year, 4, 1))), name: "Tag der Arbeit" },
+    { date: iso(addDays(easter, 39)), name: "Christi Himmelfahrt" },
+    { date: iso(addDays(easter, 50)), name: "Pfingstmontag" },
+    { date: iso(new Date(Date.UTC(year, 9, 3))), name: "Tag der Deutschen Einheit" },
+    { date: iso(new Date(Date.UTC(year, 11, 25))), name: "1. Weihnachtsfeiertag" },
+    { date: iso(new Date(Date.UTC(year, 11, 26))), name: "2. Weihnachtsfeiertag" },
+  ];
+
+  const stateHolidays = [
+    { date: iso(new Date(Date.UTC(year, 0, 6))), name: "Heilige Drei Könige", states: ["BW", "BY", "ST"] },
+    { date: iso(addDays(easter, 60)), name: "Fronleichnam", states: ["BW", "BY", "HE", "NW", "RP", "SL"] },
+    { date: iso(new Date(Date.UTC(year, 7, 15))), name: "Mariä Himmelfahrt", states: ["BY", "SL"] },
+    { date: iso(new Date(Date.UTC(year, 8, 20))), name: "Weltkindertag", states: ["TH"] },
+    { date: iso(new Date(Date.UTC(year, 9, 31))), name: "Reformationstag", states: ["BB", "MV", "SN", "ST", "TH", "HB", "HH", "NI", "SH"] },
+    { date: iso(new Date(Date.UTC(year, 10, 1))), name: "Allerheiligen", states: ["BW", "BY", "NW", "RP", "SL"] },
+    { date: iso(bussUndBettag(year)), name: "Buß- und Bettag", states: ["SN"] },
+  ];
+
+  for (const h of stateHolidays) {
+    if (h.states.includes(bundesland)) holidays.push({ date: h.date, name: h.name });
+  }
+
+  return holidays;
+}
+
+app.post("/api/holidays/generate", auth, async (req, res) => {
+  const user = await pool.query("SELECT bundesland FROM users WHERE id=$1", [req.user.id]);
+  const bundesland = user.rows[0]?.bundesland;
+  if (!bundesland) return res.status(400).json({ error: "Bitte zuerst ein Bundesland auswählen" });
+
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear, thisYear + 1];
+
+  for (const year of years) {
+    for (const h of germanHolidays(year, bundesland)) {
+      const result = await pool.query(
+        `INSERT INTO absences (user_id,date,type,notes,auto_generated) VALUES ($1,$2,'holiday',$3,true)
+         ON CONFLICT (user_id,date) DO UPDATE SET type='holiday',notes=$3,auto_generated=true
+         WHERE absences.type='holiday' OR absences.auto_generated=true
+         RETURNING *`,
+        [req.user.id, h.date, h.name]
+      );
+      if (result.rows.length) syncAbsenceToGoogle(req.user.id, result.rows[0]);
+    }
+  }
+
+  const countResult = await pool.query(
+    "SELECT COUNT(*) FROM absences WHERE user_id=$1 AND type='holiday' AND auto_generated=true AND EXTRACT(YEAR FROM date) = ANY($2)",
+    [req.user.id, years]
+  );
+  res.json({ count: parseInt(countResult.rows[0].count) });
+});
+
 // ── Time tracking ─────────────────────────────────────────────────────────────
 
 app.get("/api/time/today", auth, async (req, res) => {
@@ -518,10 +614,27 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
   const shouldHours = workDays * dailyHours;
   const overtime = totalNet - shouldHours;
 
+  const lastDay = new Date(Date.UTC(year, month, 0));
+  const allTime = await pool.query(
+    `SELECT
+       COUNT(*) as work_days,
+       COALESCE(SUM(GREATEST(0,
+         EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600 -
+         COALESCE((SELECT SUM(EXTRACT(EPOCH FROM (COALESCE(b.end_time,NOW()) - b.start_time)))
+                    FROM breaks b WHERE b.time_entry_id = te.id) / 3600, 0)
+       )), 0) as total_net
+     FROM time_entries te
+     WHERE te.user_id=$1 AND te.check_in <= $2`,
+    [userId, lastDay]
+  );
+  const runningWorkDays = parseInt(allTime.rows[0].work_days);
+  const runningNet = parseFloat(allTime.rows[0].total_net);
+  const runningBalance = runningNet - runningWorkDays * dailyHours;
+
   res.json({
     entries: enriched,
     absences: absences.rows,
-    summary: { totalNet, workDays, shouldHours, overtime, dailyHours },
+    summary: { totalNet, workDays, shouldHours, overtime, dailyHours, runningBalance },
   });
 });
 

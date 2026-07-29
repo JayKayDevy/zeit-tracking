@@ -720,7 +720,7 @@
     <!-- ── App shell ──────────────────────────────────────────────── -->
     <div id="app">
       <div class="header">
-        <div class="logo">Zeit<span>.</span>io</div>
+        <div class="logo">Zeit-Tracking<span>.saas.</span>do</div>
         <div class="header-right">
           <div class="avatar-chip" id="userChip" onclick="showPage('settings')">
             –
@@ -821,6 +821,24 @@
       let vacYear = new Date().getFullYear();
       let vacMon = new Date().getMonth() + 1;
       let selectedAbsenceType = "vacation";
+      const BUNDESLAENDER = [
+        { code: "BW", name: "Baden-Württemberg" },
+        { code: "BY", name: "Bayern" },
+        { code: "BE", name: "Berlin" },
+        { code: "BB", name: "Brandenburg" },
+        { code: "HB", name: "Bremen" },
+        { code: "HH", name: "Hamburg" },
+        { code: "HE", name: "Hessen" },
+        { code: "MV", name: "Mecklenburg-Vorpommern" },
+        { code: "NI", name: "Niedersachsen" },
+        { code: "NW", name: "Nordrhein-Westfalen" },
+        { code: "RP", name: "Rheinland-Pfalz" },
+        { code: "SL", name: "Saarland" },
+        { code: "SN", name: "Sachsen" },
+        { code: "ST", name: "Sachsen-Anhalt" },
+        { code: "SH", name: "Schleswig-Holstein" },
+        { code: "TH", name: "Thüringen" },
+      ];
 
       // ── API helper ──────────────────────────────────────────────────
       async function api(method, path, body) {
@@ -931,7 +949,11 @@
         const connected = location.hash.includes("google=connected");
         showPage("settings");
         history.replaceState(null, "", location.pathname);
-        alert(connected ? "Google Kalender verbunden ✓" : "Verbindung mit Google fehlgeschlagen");
+        alert(
+          connected
+            ? "Google Kalender verbunden ✓"
+            : "Verbindung mit Google fehlgeschlagen",
+        );
       }
 
       // ── Pages ───────────────────────────────────────────────────────
@@ -1214,6 +1236,8 @@
         const s = data.summary;
         const otClass = s.overtime >= 0 ? "positive" : "negative";
         const otSign = s.overtime >= 0 ? "+" : "";
+        const balClass = s.runningBalance >= 0 ? "positive" : "negative";
+        const balSign = s.runningBalance >= 0 ? "+" : "";
 
         let html = `
     <div class="card">
@@ -1221,6 +1245,7 @@
         <div class="stat-chip"><div class="val">${s.totalNet.toFixed(1)}h</div><div class="lbl">Gesamt</div></div>
         <div class="stat-chip"><div class="val">${s.shouldHours.toFixed(1)}h</div><div class="lbl">Soll</div></div>
         <div class="stat-chip"><div class="val ${otClass}">${otSign}${s.overtime.toFixed(1)}h</div><div class="lbl">Über-stunden</div></div>
+        <div class="stat-chip"><div class="val ${balClass}">${balSign}${s.runningBalance.toFixed(1)}h</div><div class="lbl">Gesamt-Saldo</div></div>
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
@@ -1337,7 +1362,10 @@
         const from = `${vacYear}-${String(vacMon).padStart(2, "0")}-01`;
         const to = `${vacYear}-${String(vacMon).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
         try {
-          googleEvents = await api("GET", `/google/events?from=${from}&to=${to}`);
+          googleEvents = await api(
+            "GET",
+            `/google/events?from=${from}&to=${to}`,
+          );
         } catch (e) {
           googleEvents = [];
         }
@@ -1476,17 +1504,30 @@
 
       async function applyGoogleEvent(e) {
         for (const date of datesForGoogleEvent(e)) {
-          await api("POST", "/absences", { date, type: selectedAbsenceType, notes: e.summary });
+          await api("POST", "/absences", {
+            date,
+            type: selectedAbsenceType,
+            notes: e.summary,
+          });
         }
         vacData = await api("GET", `/absences/${vacYear}`);
         renderVacation();
       }
 
       async function applyAllGoogleEvents() {
-        if (!confirm(`${googleEvents.length} Termin(e) als Abwesenheit übernehmen?`)) return;
+        if (
+          !confirm(
+            `${googleEvents.length} Termin(e) als Abwesenheit übernehmen?`,
+          )
+        )
+          return;
         for (const e of googleEvents) {
           for (const date of datesForGoogleEvent(e)) {
-            await api("POST", "/absences", { date, type: selectedAbsenceType, notes: e.summary });
+            await api("POST", "/absences", {
+              date,
+              type: selectedAbsenceType,
+              notes: e.summary,
+            });
           }
         }
         vacData = await api("GET", `/absences/${vacYear}`);
@@ -1558,11 +1599,27 @@
       <div style="font-size:13px;color:var(--muted)">
         Verbinde deinen Google Kalender, damit Urlaub/Krank/Feiertage dort automatisch als Termine angelegt werden.
       </div>
-      ${me.google_connected
-        ? `<div style="font-size:14px;font-weight:700;color:var(--green)">✓ Verbunden</div>
+      ${
+        me.google_connected
+          ? `<div style="font-size:14px;font-weight:700;color:var(--green)">✓ Verbunden</div>
            <button class="btn btn-red btn-sm" style="width:auto" onclick="disconnectGoogle()">Trennen</button>`
-        : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Mit Google verbinden</button>`
+          : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Mit Google verbinden</button>`
       }
+    </div>
+
+    <div class="section-title">🎉 Feiertage</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="font-size:13px;color:var(--muted)">
+        Bundesland wählen, dann werden die passenden Feiertage für dieses und nächstes Jahr automatisch als Abwesenheit eingetragen.
+      </div>
+      <div class="form-group"><label>Bundesland</label>
+        <select id="sBundesland">
+          <option value="">– Auswählen –</option>
+          ${BUNDESLAENDER.map((b) => `<option value="${b.code}" ${me.bundesland === b.code ? "selected" : ""}>${b.name}</option>`).join("")}
+        </select>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="generateHolidays()">Feiertage generieren</button>
     </div>
 
     <div class="section-title">🔑 Passwort ändern</div>
@@ -1589,6 +1646,7 @@
           office_lng: parseFloat(document.getElementById("sLng").value) || null,
           office_radius:
             parseInt(document.getElementById("sRadius").value) || 200,
+          bundesland: document.getElementById("sBundesland").value || null,
         };
         try {
           me = await api("PUT", "/auth/me", update);
@@ -1596,6 +1654,15 @@
           document.getElementById("userChip").textContent =
             me.name.split(" ")[0];
           alert("Gespeichert ✓");
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
+      async function generateHolidays() {
+        try {
+          const { count } = await api("POST", "/holidays/generate", {});
+          alert(`${count} Feiertage angelegt ✓`);
         } catch (e) {
           alert(e.message);
         }
