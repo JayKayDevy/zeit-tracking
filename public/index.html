@@ -1437,7 +1437,10 @@
     </div>
 
     <div class="card">
-      <div class="card-title">📅 Kalendertermine</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+        <div class="card-title" style="margin-bottom:0">📅 Kalendertermine</div>
+        ${googleEvents.length ? `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="applyAllGoogleEvents()">Alle übernehmen</button>` : ""}
+      </div>
       ${
         googleEvents.length
           ? googleEvents
@@ -1456,7 +1459,7 @@
   `;
       }
 
-      async function applyGoogleEvent(e) {
+      function datesForGoogleEvent(e) {
         const dates = [];
         if (e.allDay) {
           let d = new Date(e.start);
@@ -1468,8 +1471,23 @@
         } else {
           dates.push(e.start.split("T")[0]);
         }
-        for (const date of dates) {
+        return dates;
+      }
+
+      async function applyGoogleEvent(e) {
+        for (const date of datesForGoogleEvent(e)) {
           await api("POST", "/absences", { date, type: selectedAbsenceType, notes: e.summary });
+        }
+        vacData = await api("GET", `/absences/${vacYear}`);
+        renderVacation();
+      }
+
+      async function applyAllGoogleEvents() {
+        if (!confirm(`${googleEvents.length} Termin(e) als Abwesenheit übernehmen?`)) return;
+        for (const e of googleEvents) {
+          for (const date of datesForGoogleEvent(e)) {
+            await api("POST", "/absences", { date, type: selectedAbsenceType, notes: e.summary });
+          }
         }
         vacData = await api("GET", `/absences/${vacYear}`);
         renderVacation();
