@@ -1088,29 +1088,49 @@
         { text: "Der Mensch ist keine Maschine — auch wenn die Uhr das manchmal vergessen lässt." },
         { text: "Nicht weil es schwer ist, wagen wir es nicht, sondern weil wir es nicht wagen, ist es schwer.", author: "Seneca" },
         { text: "Es ist gleichgültig, wie langsam du gehst, solange du nicht stehen bleibst.", author: "Konfuzius" },
+        { text: "Manchmal ist der mutigste Schritt einfach: weitermachen." },
+        { text: "Du kannst nicht jeden Tag ein Feuerwerk sein — und das ist in Ordnung." },
+        { text: "Dinge brauchen Zeit. Auch gute Dinge. Besonders gute Dinge." },
+        { text: "Was heute unvollständig bleibt, darf morgen weitergehen." },
+        { text: "Ein ruhiger Tag ist kein verschwendeter Tag." },
+        { text: "Du wächst nicht, wenn alles leicht ist, sondern wenn du trotzdem weitermachst." },
+        { text: "Vergleiche deinen Tag nicht mit dem Highlight-Reel von jemand anderem." },
+        { text: "Manche Tage sind zum Schaffen da, manche zum Durchhalten — beide zählen." },
+        { text: "Selbstfürsorge ist keine Pause von der Arbeit, sie ist die Grundlage dafür." },
+        { text: "Du bist erlaubt, stolz auf kleine Dinge zu sein." },
+        { text: "Nicht alles muss sich wie Fortschritt anfühlen, um Fortschritt zu sein." },
+        { text: "Am Ende zählt nicht, wie viele Stunden du gearbeitet hast, sondern wie du sie gelebt hast." },
+        { text: "Struktur gibt dir Halt — aber Flexibilität gibt dir Luft zum Atmen." },
+        { text: "Auch ein einziger guter Moment kann einen ganzen Tag tragen." },
+        { text: "Du musst nicht alles allein schaffen." },
+        { text: "Erlaube dir, heute genug zu sein." },
+        { text: "Ein Ziel, das du langsam erreichst, ist trotzdem erreicht." },
+        { text: "Manchmal ist Innehalten der produktivste Moment des Tages." },
+        { text: "Deine Zeit ist wertvoll — geh achtsam mit ihr um, auch mit dir selbst." },
+        { text: "Was du heute säst, musst du nicht heute schon ernten." },
+        { text: "Ein Tag mit weniger geht auch — solange du dabei bei dir bleibst." },
+        { text: "Du bist nicht spät dran. Du bist genau da, wo du sein sollst." },
+        { text: "Freundlichkeit dir selbst gegenüber ist keine Schwäche, sondern Weisheit." },
+        { text: "Auch langsames Wasser höhlt den Stein." },
+        { text: "Der beste Zeitpunkt anzufangen war gestern. Der zweitbeste ist jetzt." },
+        { text: "Zeit heilt nicht alles — aber sie gibt dir Raum, damit du es kannst." },
+        { text: "Jeder Tag zählt, auch die leisen." },
+        { text: "Du darfst Prioritäten setzen, ohne dich dafür zu rechtfertigen." },
+        { text: "Fortschritt ist selten eine gerade Linie." },
+        { text: "Manchmal ist 'genug für heute' die richtige Antwort." },
+        { text: "Dein Wert hängt nicht von deiner Produktivität ab." },
+        { text: "Ein bisschen weiterzumachen ist besser als perfekt aufzuhören." },
+        { text: "Atme durch. Der Rest kommt von allein." },
       ];
 
       let quoteTimer = null;
 
-      function todaysDateKey() {
-        return new Date().toLocaleDateString("sv-SE");
-      }
-
-      function shouldShowQuote() {
-        return localStorage.getItem("zt_quote_date") !== todaysDateKey();
-      }
-
       async function loadHome() {
-        if (shouldShowQuote()) {
-          showQuoteScreen();
-        } else {
-          await loadHomeData();
-        }
+        showQuoteScreen();
       }
 
       function showQuoteScreen() {
         const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-        localStorage.setItem("zt_quote_date", todaysDateKey());
         document.getElementById("homeContent").innerHTML = `
     <div class="quote-card" onclick="dismissQuote()">
       <div class="quote-mark">"</div>
