@@ -1231,6 +1231,33 @@
       }
 
       // ── History ─────────────────────────────────────────────────────
+      async function exportExcel() {
+        try {
+          const res = await fetch(
+            `/api/time/export/xlsx/${historyYear}/${historyMon}`,
+            { headers: { Authorization: "Bearer " + token } },
+          );
+          if (!res.ok) throw new Error("Export fehlgeschlagen");
+          const blob = await res.blob();
+          const filename = `zeiten-${historyYear}-${String(historyMon).padStart(2, "0")}.xlsx`;
+          const file = new File([blob], filename, { type: blob.type });
+
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file] });
+            return;
+          }
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          if (e.name !== "AbortError") alert(e.message);
+        }
+      }
+
       async function loadHistory() {
         const data = await api(
           "GET",
@@ -1269,9 +1296,7 @@
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
-      <a href="/api/time/export/xlsx/${historyYear}/${historyMon}?token=${encodeURIComponent(token)}" download style="text-decoration:none">
-        <button class="btn btn-secondary btn-sm">📥 Excel Export</button>
-      </a>
+      <button class="btn btn-secondary btn-sm" onclick="exportExcel()">📥 Excel Export</button>
     </div>
   `;
 
