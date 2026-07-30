@@ -1245,9 +1245,10 @@
             const netH = Math.floor(netMs / 3600000);
             const netM = Math.floor((netMs % 3600000) / 60000);
             const netS = Math.floor((netMs % 60000) / 1000);
+            const targetReached = netMs >= (me.daily_hours || 8) * 3600000;
             const timer = document.getElementById("liveTimer");
             if (timer)
-              timer.textContent = `${pad(netH)}:${pad(netM)}:${pad(netS)}`;
+              timer.textContent = `${pad(netH)}:${pad(netM)}:${pad(netS)}${targetReached ? " 🎉" : ""}`;
 
             const breakH = Math.floor(currentBreakMs / 3600000);
             const breakM = Math.floor((currentBreakMs % 3600000) / 60000);
