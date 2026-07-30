@@ -371,6 +371,43 @@
         }
       }
 
+      /* ── Quote screen ──────────────────────────────────────── */
+      .quote-card {
+        min-height: 55vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2rem 1.5rem;
+        gap: 1rem;
+        cursor: pointer;
+      }
+      .quote-mark {
+        font-size: 48px;
+        font-weight: 800;
+        line-height: 1;
+        color: var(--accent);
+        opacity: 0.5;
+      }
+      .quote-text {
+        font-size: 19px;
+        font-weight: 600;
+        line-height: 1.5;
+      }
+      .quote-author {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .quote-hint {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 2rem;
+        animation: pulse 1.5s infinite;
+      }
+
       /* ── Big action buttons ────────────────────────────────── */
       .action-area {
         display: flex;
@@ -1033,7 +1070,65 @@
           '<div class="spinner-wrap"><div class="spinner"></div></div>';
       }
 
+      const QUOTES = [
+        { text: "Kleine Schritte sind auch Fortschritt." },
+        { text: "Nicht jeder Tag muss produktiv sein, um wertvoll zu sein." },
+        { text: "Du bist mehr als deine To-do-Liste." },
+        { text: "Pausen sind kein Stillstand — sie sind Teil der Bewegung." },
+        { text: "Heute reicht es, einfach dein Bestes zu geben. Nicht mehr, nicht weniger." },
+        { text: "Zeit, die du dir selbst schenkst, ist keine verlorene Zeit." },
+        { text: "Der Weg entsteht beim Gehen." },
+        { text: "Sei geduldig mit dir — du lebst gerade etwas, das du noch nie gelebt hast: heute." },
+        { text: "Du musst nicht alles heute schaffen. Du musst nur heute etwas schaffen." },
+        { text: "Arbeit gibt dem Tag Struktur — aber du gibst dem Tag Sinn." },
+        { text: "Ruhe ist produktiv, wenn sie dich wieder zu dir selbst bringt." },
+        { text: "Ein guter Tag beginnt mit einem freundlichen Blick auf dich selbst." },
+        { text: "Wachstum passiert nicht im Sprung, sondern im Wiederholen." },
+        { text: "Du bist nicht hier, um perfekt zu sein. Du bist hier, um es zu versuchen." },
+        { text: "Der Mensch ist keine Maschine — auch wenn die Uhr das manchmal vergessen lässt." },
+        { text: "Nicht weil es schwer ist, wagen wir es nicht, sondern weil wir es nicht wagen, ist es schwer.", author: "Seneca" },
+        { text: "Es ist gleichgültig, wie langsam du gehst, solange du nicht stehen bleibst.", author: "Konfuzius" },
+      ];
+
+      let quoteTimer = null;
+
+      function todaysDateKey() {
+        return new Date().toLocaleDateString("sv-SE");
+      }
+
+      function shouldShowQuote() {
+        return localStorage.getItem("zt_quote_date") !== todaysDateKey();
+      }
+
       async function loadHome() {
+        if (shouldShowQuote()) {
+          showQuoteScreen();
+        } else {
+          await loadHomeData();
+        }
+      }
+
+      function showQuoteScreen() {
+        const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+        localStorage.setItem("zt_quote_date", todaysDateKey());
+        document.getElementById("homeContent").innerHTML = `
+    <div class="quote-card" onclick="dismissQuote()">
+      <div class="quote-mark">"</div>
+      <div class="quote-text">${q.text}</div>
+      ${q.author ? `<div class="quote-author">— ${q.author}</div>` : ""}
+      <div class="quote-hint">Tippen zum Fortfahren</div>
+    </div>
+  `;
+        clearTimeout(quoteTimer);
+        quoteTimer = setTimeout(dismissQuote, 4500);
+      }
+
+      async function dismissQuote() {
+        clearTimeout(quoteTimer);
+        await loadHomeData();
+      }
+
+      async function loadHomeData() {
         showSpinner("homeContent");
         try {
           todayData = await api("GET", "/time/today");
@@ -1225,7 +1320,7 @@
             notes: notes || undefined,
           });
           closeModal();
-          await loadHome();
+          await loadHomeData();
         } catch (e) {
           alert(e.message);
         }
@@ -1234,7 +1329,7 @@
       async function doCheckout() {
         try {
           await api("POST", "/time/checkout", {});
-          await loadHome();
+          await loadHomeData();
         } catch (e) {
           alert(e.message);
         }
@@ -1243,7 +1338,7 @@
       async function startBreak() {
         try {
           await api("POST", "/time/break/start", {});
-          await loadHome();
+          await loadHomeData();
         } catch (e) {
           alert(e.message);
         }
@@ -1252,7 +1347,7 @@
       async function endBreak() {
         try {
           await api("POST", "/time/break/end", {});
-          await loadHome();
+          await loadHomeData();
         } catch (e) {
           alert(e.message);
         }
