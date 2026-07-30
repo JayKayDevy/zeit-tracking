@@ -703,7 +703,7 @@
   <body>
     <!-- ── Auth screen ────────────────────────────────────────────── -->
     <div id="authScreen">
-      <div class="auth-logo">zeit-tracking.<span>saas</span>.do</div>
+      <div class="auth-logo">worktime.<span>saas</span>.do</div>
       <div class="auth-sub">Zeiterfassung für dein Team</div>
 
       <div class="auth-tabs">
@@ -761,7 +761,7 @@
     <!-- ── App shell ──────────────────────────────────────────────── -->
     <div id="app">
       <div class="header">
-        <div class="logo">zeit-tracking.<span>saas</span>.do</div>
+        <div class="logo">worktime.<span>saas</span>.do</div>
         <div class="header-right">
           <div class="avatar-chip" id="userChip" onclick="showPage('settings')">
             –
@@ -857,7 +857,10 @@
       let me = JSON.parse(localStorage.getItem("zt_user") || "null");
       const DEFAULT_ACCENT = "#c08552";
       function applyAccentColor(color) {
-        document.documentElement.style.setProperty("--accent", color || DEFAULT_ACCENT);
+        document.documentElement.style.setProperty(
+          "--accent",
+          color || DEFAULT_ACCENT,
+        );
       }
       applyAccentColor(me?.accent_color);
       let timerInterval = null;
@@ -1145,8 +1148,18 @@
 
       function renderMonthProgress(mp) {
         const MONTHS = [
-          "Januar", "Februar", "März", "April", "Mai", "Juni",
-          "Juli", "August", "September", "Oktober", "November", "Dezember",
+          "Januar",
+          "Februar",
+          "März",
+          "April",
+          "Mai",
+          "Juni",
+          "Juli",
+          "August",
+          "September",
+          "Oktober",
+          "November",
+          "Dezember",
         ];
         const monthName = MONTHS[new Date().getMonth()];
         const done = mp.remainingHours <= 0;
@@ -1743,8 +1756,7 @@
           ${BUNDESLAENDER.map((b) => `<option value="${b.code}" ${me.bundesland === b.code ? "selected" : ""}>${b.name}</option>`).join("")}
         </select>
       </div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="generateHolidays()">Feiertage generieren</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="generateHolidays(this)">Feiertage generieren</button>
     </div>
 
     <div class="section-title">🔑 Passwort ändern</div>
@@ -1760,8 +1772,8 @@
   `;
       }
 
-      async function saveProfile() {
-        const update = {
+      function collectProfileUpdate() {
+        return {
           name: document.getElementById("sName").value,
           daily_hours: parseFloat(document.getElementById("sHours").value),
           vacation_days_per_year: parseInt(
@@ -1776,8 +1788,11 @@
           tracking_start_date:
             document.getElementById("sTrackingStart").value || null,
         };
+      }
+
+      async function saveProfile() {
         try {
-          me = await api("PUT", "/auth/me", update);
+          me = await api("PUT", "/auth/me", collectProfileUpdate());
           localStorage.setItem("zt_user", JSON.stringify(me));
           document.getElementById("userChip").textContent =
             me.name.split(" ")[0];
@@ -1787,12 +1802,21 @@
         }
       }
 
-      async function generateHolidays() {
+      async function generateHolidays(btn) {
+        const originalLabel = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML =
+          '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0 auto"></div>';
         try {
+          me = await api("PUT", "/auth/me", collectProfileUpdate());
+          localStorage.setItem("zt_user", JSON.stringify(me));
           const { count } = await api("POST", "/holidays/generate", {});
           alert(`${count} Feiertage angelegt ✓`);
         } catch (e) {
           alert(e.message);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalLabel;
         }
       }
 
