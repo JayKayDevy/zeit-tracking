@@ -644,7 +644,7 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
      WHERE te.user_id=$1
        AND EXTRACT(YEAR FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $2
        AND EXTRACT(MONTH FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $3
-     ORDER BY te.check_in`,
+     ORDER BY te.check_in DESC`,
     [userId, year, month]
   );
 
