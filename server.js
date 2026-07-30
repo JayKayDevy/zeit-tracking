@@ -87,6 +87,7 @@ async function initDB() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS bundesland VARCHAR(20);
       ALTER TABLE absences ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN DEFAULT false;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_color VARCHAR(7);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS tracking_start_date DATE;
     `);
     console.log("DB ready");
   } finally {
@@ -142,7 +143,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query(
-      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
+      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
       [email]
     );
     const user = result.rows[0];
@@ -159,20 +160,20 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
 });
 
 app.put("/api/auth/me", auth, async (req, res) => {
-  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius, bundesland, accent_color } = req.body;
+  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius, bundesland, accent_color, tracking_start_date } = req.body;
   await pool.query(
-    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6,bundesland=$7,accent_color=$8 WHERE id=$9",
-    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, accent_color || null, req.user.id]
+    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6,bundesland=$7,accent_color=$8,tracking_start_date=$9 WHERE id=$10",
+    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, accent_color || null, tracking_start_date || null, req.user.id]
   );
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -499,11 +500,18 @@ app.get("/api/time/month-progress", auth, async (req, res) => {
   const dailyHours = parseFloat(user.rows[0]?.daily_hours || 8);
 
   const weekdays = await pool.query(
-    `WITH bounds AS (
-       SELECT date_trunc('month', (NOW() AT TIME ZONE 'Europe/Berlin'))::date AS month_start
+    `WITH info AS (
+       SELECT
+         date_trunc('month', (NOW() AT TIME ZONE 'Europe/Berlin'))::date AS month_start,
+         (date_trunc('month', (NOW() AT TIME ZONE 'Europe/Berlin')) + interval '1 month - 1 day')::date AS month_end,
+         COALESCE(u.tracking_start_date, u.created_at::date) AS start_date
+       FROM users u WHERE u.id=$1
+     ),
+     bounds AS (
+       SELECT GREATEST(month_start, start_date) AS range_start, month_end AS range_end FROM info
      ),
      month_days AS (
-       SELECT generate_series(month_start, month_start + interval '1 month - 1 day', interval '1 day')::date AS d
+       SELECT generate_series(range_start, range_end, interval '1 day')::date AS d
        FROM bounds
      ),
      weekdays AS (
