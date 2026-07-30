@@ -835,6 +835,7 @@
       applyAccentColor(me?.accent_color);
       let timerInterval = null;
       let todayData = null;
+      let monthProgress = null;
       let historyYear = new Date().getFullYear();
       let historyMon = new Date().getMonth() + 1;
       let vacYear = new Date().getFullYear();
@@ -1000,6 +1001,7 @@
       async function loadHome() {
         try {
           todayData = await api("GET", "/time/today");
+          monthProgress = await api("GET", "/time/month-progress");
           renderHome();
         } catch (e) {
           console.error(e);
@@ -1075,6 +1077,8 @@
       }
     `
     }
+
+    ${monthProgress ? renderMonthProgress(monthProgress) : ""}
   `;
 
         clearInterval(timerInterval);
@@ -1104,6 +1108,24 @@
           tick();
           timerInterval = setInterval(tick, 1000);
         }
+      }
+
+      function renderMonthProgress(mp) {
+        const MONTHS = [
+          "Januar", "Februar", "März", "April", "Mai", "Juni",
+          "Juli", "August", "September", "Oktober", "November", "Dezember",
+        ];
+        const monthName = MONTHS[new Date().getMonth()];
+        const done = mp.remainingHours <= 0;
+        return `
+    <div class="card">
+      <div class="card-title">${monthName} im Blick</div>
+      <div class="stat-row">
+        <div class="stat-chip"><div class="val">${mp.workedHours.toFixed(1)}h</div><div class="lbl">Gearbeitet</div></div>
+        <div class="stat-chip"><div class="val">${mp.requiredHours.toFixed(1)}h</div><div class="lbl">Soll (Monat)</div></div>
+        <div class="stat-chip"><div class="val ${done ? "positive" : ""}">${done ? "+" + mp.overtimeHours.toFixed(1) : mp.remainingHours.toFixed(1)}h</div><div class="lbl">${done ? "Über Soll" : "Noch offen"}</div></div>
+      </div>
+    </div>`;
       }
 
       function pad(n) {

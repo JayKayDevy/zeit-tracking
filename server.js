@@ -494,6 +494,54 @@ app.get("/api/time/today", auth, async (req, res) => {
   res.json({ status: e.check_out ? "out" : "in", entry: e, breaks: breaks.rows });
 });
 
+app.get("/api/time/month-progress", auth, async (req, res) => {
+  const user = await pool.query("SELECT daily_hours FROM users WHERE id=$1", [req.user.id]);
+  const dailyHours = parseFloat(user.rows[0]?.daily_hours || 8);
+
+  const weekdays = await pool.query(
+    `WITH bounds AS (
+       SELECT date_trunc('month', (NOW() AT TIME ZONE 'Europe/Berlin'))::date AS month_start
+     ),
+     month_days AS (
+       SELECT generate_series(month_start, month_start + interval '1 month - 1 day', interval '1 day')::date AS d
+       FROM bounds
+     ),
+     weekdays AS (
+       SELECT d FROM month_days WHERE EXTRACT(DOW FROM d) NOT IN (0,6)
+     )
+     SELECT
+       (SELECT COUNT(*) FROM weekdays) AS total_weekdays,
+       (SELECT COUNT(*) FROM weekdays w
+          JOIN absences a ON a.date = w.d AND a.user_id=$1 AND a.type IN ('holiday','vacation','sick')
+       ) AS absence_weekdays`,
+    [req.user.id]
+  );
+  const totalWeekdays = parseInt(weekdays.rows[0].total_weekdays);
+  const absenceWeekdays = parseInt(weekdays.rows[0].absence_weekdays);
+  const requiredHours = (totalWeekdays - absenceWeekdays) * dailyHours;
+
+  const worked = await pool.query(
+    `SELECT COALESCE(SUM(GREATEST(0,
+       EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600 -
+       COALESCE((SELECT SUM(EXTRACT(EPOCH FROM (COALESCE(b.end_time,NOW()) - b.start_time)))
+                  FROM breaks b WHERE b.time_entry_id = te.id) / 3600, 0)
+     )), 0) AS worked_hours
+     FROM time_entries te
+     WHERE te.user_id=$1
+       AND EXTRACT(YEAR FROM te.check_in AT TIME ZONE 'Europe/Berlin') = EXTRACT(YEAR FROM NOW() AT TIME ZONE 'Europe/Berlin')
+       AND EXTRACT(MONTH FROM te.check_in AT TIME ZONE 'Europe/Berlin') = EXTRACT(MONTH FROM NOW() AT TIME ZONE 'Europe/Berlin')`,
+    [req.user.id]
+  );
+  const workedHours = parseFloat(worked.rows[0].worked_hours);
+
+  res.json({
+    requiredHours,
+    workedHours,
+    remainingHours: Math.max(0, requiredHours - workedHours),
+    overtimeHours: Math.max(0, workedHours - requiredHours),
+  });
+});
+
 app.post("/api/time/checkin", auth, async (req, res) => {
   const { notes } = req.body;
 
