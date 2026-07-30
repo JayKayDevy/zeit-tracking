@@ -1495,6 +1495,7 @@
               timeZone: "Europe/Berlin",
             });
             const net = parseFloat(e.net_hours).toFixed(2).replace(".", ",");
+            const breakHours = parseFloat(e.break_hours || 0);
             let diffHtml = "";
             if (e.check_out) {
               const diff = parseFloat(e.net_hours) - data.summary.dailyHours;
@@ -1507,6 +1508,7 @@
           <div class="entry-date">${dayStr}</div>
           <div class="entry-times">
             <div class="t">${fmtTime(e.check_in)} – ${fmtTime(e.check_out) || "läuft"}</div>
+            ${breakHours > 0 ? `<div class="sub">☕ ${breakHours.toFixed(1)}h Pause</div>` : ""}
             ${e.notes ? `<div class="sub">${e.notes}</div>` : ""}
           </div>
           <div class="entry-hours">${net}h${diffHtml}</div>
