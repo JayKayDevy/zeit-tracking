@@ -1687,19 +1687,32 @@
     <div class="card">
       <div class="card-title">Einträge ${String(vacMon).padStart(2, "0")}/${vacYear}</div>
       ${
-        vacData.absences
-          .filter((a) => {
+        groupConsecutiveAbsences(
+          vacData.absences.filter((a) => {
             const d = new Date(a.date);
             return d.getFullYear() === vacYear && d.getMonth() + 1 === vacMon;
-          })
-          .map(
-            (a) => `
+          }),
+        )
+          .map((g) => {
+            const fmt = (dt) =>
+              dt.toLocaleDateString("de-DE", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              });
+            const label =
+              g.type === "holiday" && g.notes ? "🎉 " + g.notes : typeLabels[g.type];
+            const dateLabel =
+              g.start.getTime() === g.end.getTime()
+                ? fmt(g.start)
+                : `${fmt(g.start)} – ${fmt(g.end)}`;
+            return `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="flex:1;font-size:14px">${new Date(a.date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} – ${a.type === "holiday" && a.notes ? "🎉 " + a.notes : typeLabels[a.type]}</div>
-          <button class="btn btn-secondary btn-sm" onclick="deleteAbsence(${a.id})">✕</button>
+          <div style="flex:1;font-size:14px">${dateLabel} · ${label}</div>
+          <button class="btn btn-secondary btn-sm" onclick='deleteAbsenceGroup(${JSON.stringify(g.ids)})'>✕</button>
         </div>
-      `,
-          )
+      `;
+          })
           .join("") ||
         "<div style='color:var(--muted);font-size:13px'>Keine Einträge</div>"
       }
@@ -1803,8 +1816,26 @@
         renderVacation();
       }
 
-      async function deleteAbsence(id) {
-        await api("DELETE", `/absences/${id}`, {});
+      function groupConsecutiveAbsences(list) {
+        const groups = [];
+        for (const a of list) {
+          const d = new Date(a.date);
+          const last = groups[groups.length - 1];
+          if (last && last.type === a.type && d - last.end === 86400000) {
+            last.end = d;
+            last.ids.push(a.id);
+          } else {
+            groups.push({ type: a.type, notes: a.notes, start: d, end: d, ids: [a.id] });
+          }
+        }
+        return groups;
+      }
+
+      async function deleteAbsenceGroup(ids) {
+        if (ids.length > 1 && !confirm(`${ids.length} Tage wirklich löschen?`)) return;
+        for (const id of ids) {
+          await api("DELETE", `/absences/${id}`, {});
+        }
         vacData = await api("GET", `/absences/${vacYear}`);
         renderVacation();
       }
