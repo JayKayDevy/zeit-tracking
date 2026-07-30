@@ -9,9 +9,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        fromDatabase:
-          name: zeit-tracking-db
-          property: connectionString
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -19,6 +17,8 @@ services:
       - key: GOOGLE_REDIRECT_URI
         sync: false
 
+# zeit-tracking-db bleibt vorerst als Backup/Fallback bestehen (nicht mehr aktiv genutzt,
+# App läuft jetzt auf einer externen Neon-Postgres-DB via manuell gesetzter DATABASE_URL).
 databases:
   - name: zeit-tracking-db
     plan: free
