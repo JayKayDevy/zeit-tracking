@@ -486,6 +486,12 @@
         font-size: 15px;
         font-weight: 800;
         color: var(--accent);
+        text-align: right;
+      }
+      .entry-diff {
+        font-size: 11px;
+        font-weight: 600;
+        margin-top: 1px;
       }
 
       /* ── Month nav ─────────────────────────────────────────── */
@@ -1361,6 +1367,13 @@
               timeZone: "Europe/Berlin",
             });
             const net = parseFloat(e.net_hours).toFixed(2).replace(".", ",");
+            let diffHtml = "";
+            if (e.check_out) {
+              const diff = parseFloat(e.net_hours) - data.summary.dailyHours;
+              const diffClass = diff >= 0 ? "positive" : "negative";
+              const diffSign = diff >= 0 ? "+" : "";
+              diffHtml = `<div class="entry-diff ${diffClass}">${diffSign}${diff.toFixed(1)}h</div>`;
+            }
             html += `
         <div class="entry-row" onclick="showEntryModal(${JSON.stringify(e).replace(/"/g, "&quot;")})">
           <div class="entry-date">${dayStr}</div>
@@ -1368,7 +1381,7 @@
             <div class="t">${fmtTime(e.check_in)} – ${fmtTime(e.check_out) || "läuft"}</div>
             ${e.notes ? `<div class="sub">${e.notes}</div>` : ""}
           </div>
-          <div class="entry-hours">${net}h</div>
+          <div class="entry-hours">${net}h${diffHtml}</div>
         </div>`;
           }
         }
