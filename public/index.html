@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
     />
     <title>Zeit-Tracking</title>
     <link rel="manifest" href="/manifest.json" />
@@ -223,7 +223,7 @@
       .pages {
         flex: 1;
         overflow-y: auto;
-        padding-bottom: 72px;
+        padding-bottom: calc(96px + env(safe-area-inset-bottom));
       }
       .page {
         display: none;
@@ -236,13 +236,16 @@
       /* ── Bottom nav ────────────────────────────────────────── */
       .bottom-nav {
         position: fixed;
-        bottom: 0;
+        bottom: calc(16px + env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
-        width: 100%;
-        max-width: 480px;
+        width: calc(100% - 32px);
+        max-width: 448px;
         background: var(--bg2);
-        border-top: 1px solid var(--border);
+        border: 1px solid var(--border);
+        border-radius: 26px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
         display: flex;
         z-index: 100;
       }
@@ -253,7 +256,7 @@
         align-items: center;
         justify-content: center;
         gap: 3px;
-        padding: 10px 4px 14px;
+        padding: 10px 4px;
         background: none;
         border: none;
         cursor: pointer;
