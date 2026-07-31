@@ -686,7 +686,6 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
   const shouldHours = workDays * dailyHours;
   const overtime = totalNet - shouldHours;
 
-  const lastDay = new Date(Date.UTC(year, month, 0));
   const allTime = await pool.query(
     `SELECT
        COUNT(*) as work_days,
@@ -696,8 +695,10 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
                     FROM breaks b WHERE b.time_entry_id = te.id) / 3600, 0)
        )), 0) as total_net
      FROM time_entries te
-     WHERE te.user_id=$1 AND te.check_in <= $2`,
-    [userId, lastDay]
+     WHERE te.user_id=$1
+       AND (te.check_in AT TIME ZONE 'Europe/Berlin')::date
+           <= (make_date($2::int,$3::int,1) + interval '1 month - 1 day')::date`,
+    [userId, year, month]
   );
   const runningWorkDays = parseInt(allTime.rows[0].work_days);
   const runningNet = parseFloat(allTime.rows[0].total_net);
