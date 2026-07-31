@@ -662,10 +662,23 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
 
   const dailyHours = parseFloat(user.rows[0]?.daily_hours || 8);
 
+  const entryIds = entries.rows.map((e) => e.id);
+  const breaksResult = entryIds.length
+    ? await pool.query(
+        "SELECT * FROM breaks WHERE time_entry_id = ANY($1) ORDER BY start_time",
+        [entryIds]
+      )
+    : { rows: [] };
+  const breaksByEntry = {};
+  for (const b of breaksResult.rows) {
+    (breaksByEntry[b.time_entry_id] ??= []).push(b);
+  }
+
   // compute net hours per entry
   const enriched = entries.rows.map((e) => ({
     ...e,
     net_hours: Math.max(0, parseFloat(e.gross_hours) - parseFloat(e.break_hours)),
+    breaks: breaksByEntry[e.id] || [],
   }));
 
   const totalNet = enriched.reduce((s, e) => s + e.net_hours, 0);
@@ -857,6 +870,18 @@ app.put("/api/time/:id", auth, async (req, res) => {
 app.delete("/api/time/:id", auth, async (req, res) => {
   await pool.query("DELETE FROM time_entries WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
   res.json({ ok: true });
+});
+
+app.put("/api/breaks/:id", auth, async (req, res) => {
+  const { start_time, end_time } = req.body;
+  const result = await pool.query(
+    `UPDATE breaks SET start_time=$1, end_time=$2
+     WHERE id=$3 AND time_entry_id IN (SELECT id FROM time_entries WHERE user_id=$4)
+     RETURNING *`,
+    [start_time, end_time || null, req.params.id, req.user.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(result.rows[0]);
 });
 
 // ── Catch-all → SPA ──────────────────────────────────────────────────────────

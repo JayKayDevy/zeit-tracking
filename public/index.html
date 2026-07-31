@@ -1293,6 +1293,19 @@
       function pad(n) {
         return String(n).padStart(2, "0");
       }
+      function berlinLocalInput(ts) {
+        if (!ts) return "";
+        const s = new Intl.DateTimeFormat("sv-SE", {
+          timeZone: "Europe/Berlin",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(new Date(ts));
+        return s.replace(" ", "T");
+      }
       function fmtTime(ts) {
         if (!ts) return "–";
         return new Date(ts).toLocaleTimeString("de-DE", {
@@ -1533,20 +1546,32 @@
       }
 
       function showEntryModal(entry) {
-        const fmtInput = (ts) =>
-          ts ? new Date(ts).toISOString().slice(0, 16) : "";
+        const breaks = entry.breaks || [];
         showModal(`
     <div class="modal-title">Eintrag bearbeiten</div>
-    <div class="form-group"><label>Check-In</label><input type="datetime-local" id="editIn" value="${fmtInput(entry.check_in)}" /></div>
-    <div class="form-group"><label>Check-Out</label><input type="datetime-local" id="editOut" value="${fmtInput(entry.check_out)}" /></div>
+    <div class="form-group"><label>Check-In</label><input type="datetime-local" id="editIn" value="${berlinLocalInput(entry.check_in)}" /></div>
+    <div class="form-group"><label>Check-Out</label><input type="datetime-local" id="editOut" value="${berlinLocalInput(entry.check_out)}" /></div>
     <div class="form-group"><label>Notiz</label><input type="text" id="editNote" value="${entry.notes || ""}" /></div>
-    <button class="btn btn-primary" onclick="saveEntry(${entry.id})">Speichern</button>
+    ${
+      breaks.length
+        ? `<div class="section-title" style="margin:.5rem 0 0">☕ Pausen</div>` +
+          breaks
+            .map(
+              (b) => `
+    <div class="form-group"><label>Pause-Start</label><input type="datetime-local" id="editBreakStart_${b.id}" value="${berlinLocalInput(b.start_time)}" /></div>
+    <div class="form-group"><label>Pause-Ende</label><input type="datetime-local" id="editBreakEnd_${b.id}" value="${berlinLocalInput(b.end_time)}" /></div>
+  `,
+            )
+            .join("")
+        : ""
+    }
+    <button class="btn btn-primary" onclick="saveEntry(${entry.id}, ${JSON.stringify(breaks.map((b) => b.id))})">Speichern</button>
     <button class="btn btn-red btn-sm" onclick="deleteEntry(${entry.id})">Eintrag löschen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function saveEntry(id) {
+      async function saveEntry(id, breakIds) {
         const check_in = new Date(
           document.getElementById("editIn").value,
         ).toISOString();
@@ -1560,6 +1585,14 @@
             check_out,
             notes,
           });
+          for (const bid of breakIds || []) {
+            const startVal = document.getElementById(`editBreakStart_${bid}`).value;
+            const endVal = document.getElementById(`editBreakEnd_${bid}`).value;
+            await api("PUT", `/breaks/${bid}`, {
+              start_time: new Date(startVal).toISOString(),
+              end_time: endVal ? new Date(endVal).toISOString() : null,
+            });
+          }
           closeModal();
           loadHistory();
         } catch (e) {
