@@ -958,6 +958,7 @@
       let monthProgress = null;
       let historyYear = new Date().getFullYear();
       let historyMon = new Date().getMonth() + 1;
+      let historyEntries = [];
       let vacYear = new Date().getFullYear();
       let vacMon = new Date().getMonth() + 1;
       let projects = [];
@@ -1571,6 +1572,7 @@
     </div>
   `;
 
+        historyEntries = data.entries;
         if (!data.entries.length) {
           html += '<div class="empty">Keine Einträge in diesem Monat</div>';
         } else {
@@ -1591,7 +1593,7 @@
               diffHtml = `<div class="entry-diff ${diffClass}">${diffSign}${diff.toFixed(1)}h</div>`;
             }
             html += `
-        <div class="entry-row" onclick="showEntryModal(${JSON.stringify(e).replace(/"/g, "&quot;")})">
+        <div class="entry-row" onclick="showEntryModal(${e.id})">
           <div class="entry-date">${dayStr}</div>
           <div class="entry-times">
             <div class="t">${fmtTime(e.check_in)} – ${fmtTime(e.check_out) || "läuft"}</div>
@@ -1625,6 +1627,7 @@
       let importEvents = [];
       let importEmails = [];
       let importView = null;
+      let pendingImportMetadata = null;
       let billingEntries = [];
       let ignoredItems = [];
       let showIgnored = false;
@@ -1792,7 +1795,7 @@
         <span class="tag" style="margin-left:4px">${SOURCE_LABELS[b.source_type] || b.source_type}</span>
         ${b.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(b.description)}</div>` : ""}
       </div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='editBillingEntry(${JSON.stringify(b).replace(/"/g, "&quot;")})'>✏️</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editBillingEntry(${b.id})">✏️</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="deleteBillingItem(${b.id})">✕</button>
     </div>
   `,
@@ -1800,7 +1803,9 @@
             .join("");
       }
 
-      function editBillingEntry(b) {
+      function editBillingEntry(id) {
+        const b = billingEntries.find((x) => x.id === id);
+        if (!b) return;
         const endVal = b.end_time
           ? berlinLocalInput(b.end_time)
           : berlinLocalInput(b.service_date);
@@ -1809,7 +1814,7 @@
     <div class="form-group"><label>Projekt</label>
       <select id="editBillProject">
         <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}" ${p.id == b.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
+        ${projects.map((p) => `<option value="${p.id}" ${p.id == b.project_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
       </select>
     </div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="editBillEnd" value="${endVal}" /></div>
@@ -1942,16 +1947,23 @@
         ${dateStr} · ${escapeHtml(item.title)}
         ${subline ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(subline)}</div>` : ""}
       </div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='showItemDetails(${JSON.stringify(item).replace(/"/g, "&quot;")})'>Details</button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='showImportConfirmModal(${JSON.stringify(item).replace(/"/g, "&quot;")})'>Übernehmen</button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='ignoreImportItem(${JSON.stringify(item).replace(/"/g, "&quot;")})'>✕</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showItemDetails('${item.id}')">Details</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showImportConfirmModal('${item.id}')">Übernehmen</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreImportItem('${item.id}')">✕</button>
     </div>
   `;
           })
           .join("");
       }
 
-      function showItemDetails(item) {
+      function findImportItem(id) {
+        const list = importView === "email" ? importEmails : importEvents;
+        return list.find((x) => x.id === id);
+      }
+
+      function showItemDetails(id) {
+        const item = findImportItem(id);
+        if (!item) return;
         if (importView === "email") {
           showEmailDetails(item.id);
           return;
@@ -1990,7 +2002,9 @@
         }
       }
 
-      async function showImportConfirmModal(item) {
+      async function showImportConfirmModal(id) {
+        const item = findImportItem(id);
+        if (!item) return;
         const isEmail = importView === "email";
         let description = "";
         let metadata = {};
@@ -2022,19 +2036,21 @@
     <div class="form-group"><label>Projekt</label>
       <select id="impProject">
         <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}
+        ${projects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
       </select>
     </div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label><input type="number" id="impDuration" step="0.25" min="0.25" value="${durationHours}" /></div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
     <div class="form-group"><label>Beschreibung</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
-    <button class="btn btn-primary" onclick='confirmImport(${JSON.stringify(item.id)}, ${JSON.stringify(metadata).replace(/"/g, "&quot;")})'>Übernehmen</button>
+    <button class="btn btn-primary" onclick="confirmImport('${item.id}')">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
+        pendingImportMetadata = metadata;
       }
 
-      async function confirmImport(id, metadata) {
+      async function confirmImport(id) {
+        const metadata = pendingImportMetadata;
         const project_id = document.getElementById("impProject").value || null;
         const endVal = document.getElementById("impEnd").value;
         const duration_hours = parseFloat(document.getElementById("impDuration").value);
@@ -2066,7 +2082,9 @@
         }
       }
 
-      async function ignoreImportItem(item) {
+      async function ignoreImportItem(id) {
+        const item = findImportItem(id);
+        if (!item) return;
         const itemDate =
           importView === "email"
             ? berlinLocalInput(item.sentAt).slice(0, 10)
@@ -2090,7 +2108,9 @@
         }
       }
 
-      function showEntryModal(entry) {
+      function showEntryModal(id) {
+        const entry = historyEntries.find((e) => e.id === id);
+        if (!entry) return;
         const breaks = entry.breaks || [];
         showModal(`
     <div class="modal-title">Eintrag bearbeiten</div>
@@ -2099,10 +2119,10 @@
     <div class="form-group"><label>Projekt</label>
       <select id="editProject">
         <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}" ${p.id == entry.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
+        ${projects.map((p) => `<option value="${p.id}" ${p.id == entry.project_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
       </select>
     </div>
-    <div class="form-group"><label>Notiz</label><input type="text" id="editNote" value="${entry.notes || ""}" /></div>
+    <div class="form-group"><label>Notiz</label><input type="text" id="editNote" value="${escapeHtml(entry.notes)}" /></div>
     ${
       breaks.length
         ? `<div class="section-title" style="margin:.5rem 0 0">☕ Pausen</div>` +
@@ -2316,8 +2336,8 @@
               .map(
                 (e) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="flex:1;font-size:14px">${fmtDate(e.start)} · ${e.summary}</div>
-          <button class="btn btn-secondary btn-sm" onclick='applyGoogleEvent(${JSON.stringify(e).replace(/"/g, "&quot;")})'>Übernehmen</button>
+          <div style="flex:1;font-size:14px">${fmtDate(e.start)} · ${escapeHtml(e.summary)}</div>
+          <button class="btn btn-secondary btn-sm" onclick="applyGoogleEvent('${e.id}')">Übernehmen</button>
         </div>
       `,
               )
@@ -2343,7 +2363,9 @@
         return dates;
       }
 
-      async function applyGoogleEvent(e) {
+      async function applyGoogleEvent(id) {
+        const e = googleEvents.find((x) => x.id === id);
+        if (!e) return;
         for (const date of datesForGoogleEvent(e)) {
           await api("POST", "/absences", {
             date,
@@ -2538,10 +2560,10 @@
     <div class="project-row">
       <div class="project-color" style="background:${p.color}"></div>
       <div style="flex:1">
-        <div class="project-name">${p.name}</div>
-        ${p.external_id ? `<div class="project-ext">Auftragsnummer: ${p.external_id}</div>` : ""}
+        <div class="project-name">${escapeHtml(p.name)}</div>
+        ${p.external_id ? `<div class="project-ext">Auftragsnummer: ${escapeHtml(p.external_id)}</div>` : ""}
       </div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='editProject(${JSON.stringify(p).replace(/"/g, "&quot;")})'>✏️</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editProject(${p.id})">✏️</button>
     </div>
   `,
           )
@@ -2570,12 +2592,14 @@
         renderProjects();
       }
 
-      function editProject(p) {
+      function editProject(id) {
+        const p = projects.find((x) => x.id === id);
+        if (!p) return;
         showModal(`
     <div class="modal-title">Projekt bearbeiten</div>
-    <div class="form-group"><label>Name</label><input type="text" id="epName" value="${p.name}" /></div>
+    <div class="form-group"><label>Name</label><input type="text" id="epName" value="${escapeHtml(p.name)}" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
-    <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${p.external_id || ""}" /></div>
+    <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${escapeHtml(p.external_id || "")}" /></div>
     <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
     <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
@@ -2714,21 +2738,22 @@
       }
 
       // ── Admin ────────────────────────────────────────────────────────
+      let adminUsers = [];
       async function loadAdmin() {
         showSpinner("adminContent");
-        const users = await api("GET", "/admin/users");
+        adminUsers = await api("GET", "/admin/users");
         document.getElementById("adminContent").innerHTML = `
     <div class="section-title">Alle Benutzer</div>
-    ${users
+    ${adminUsers
       .map(
         (u) => `
       <div class="card" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.5rem">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="flex:1">
-            <div style="font-weight:700">${u.name}</div>
-            <div style="font-size:12px;color:var(--muted)">${u.email} · ${u.role}</div>
+            <div style="font-weight:700">${escapeHtml(u.name)}</div>
+            <div style="font-size:12px;color:var(--muted)">${escapeHtml(u.email)} · ${u.role}</div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="editUser(${JSON.stringify(u).replace(/"/g, "&quot;")})">✏️</button>
+          <button class="btn btn-secondary btn-sm" onclick="editUser(${u.id})">✏️</button>
         </div>
         <div style="font-size:12px;color:var(--muted)">${u.daily_hours}h/Tag · ${u.vacation_days_per_year} Urlaubstage</div>
       </div>
@@ -2738,10 +2763,12 @@
   `;
       }
 
-      function editUser(u) {
+      function editUser(id) {
+        const u = adminUsers.find((x) => x.id === id);
+        if (!u) return;
         showModal(`
-    <div class="modal-title">${u.name} bearbeiten</div>
-    <div class="form-group"><label>Name</label><input type="text" id="auName" value="${u.name}" /></div>
+    <div class="modal-title">${escapeHtml(u.name)} bearbeiten</div>
+    <div class="form-group"><label>Name</label><input type="text" id="auName" value="${escapeHtml(u.name)}" /></div>
     <div class="form-group"><label>Rolle</label>
       <select id="auRole">
         <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
