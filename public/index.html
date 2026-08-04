@@ -2210,19 +2210,35 @@
           filtered
             .map(
               (b) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="flex:1;font-size:14px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;min-width:0">
+      <div style="flex:1;font-size:14px;min-width:0;overflow-wrap:break-word">
         ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} · ${formatHours(b.duration_hours)} · ${escapeHtml(b.title)}
         ${b.project_name ? `<span class="tag" style="background:${b.project_color}30;color:${b.project_color};margin-left:4px">${b.project_name}</span>` : ""}
         <span class="tag" style="margin-left:4px">${SOURCE_LABELS[b.source_type] || b.source_type}</span>
-        ${b.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(b.description)}</div>` : ""}
       </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showBillingDetails(${b.id})">Details</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editBillingEntry(${b.id})">✏️</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="deleteBillingItem(${b.id})">✕</button>
     </div>
   `,
             )
             .join("");
+      }
+
+      function showBillingDetails(id) {
+        const b = billingEntries.find((x) => x.id === id);
+        if (!b) return;
+        showModal(`
+    <div class="modal-title">${escapeHtml(b.title)}</div>
+    <div style="font-size:13px;color:var(--muted)">
+      ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+      ${b.end_time ? " · " + fmtTime(b.end_time) : ""} · ${formatHours(b.duration_hours)}
+    </div>
+    ${b.project_name ? `<div style="font-size:13px"><strong>Projekt:</strong> ${escapeHtml(b.project_name)}</div>` : ""}
+    <div style="font-size:13px"><strong>Quelle:</strong> ${escapeHtml(SOURCE_LABELS[b.source_type] || b.source_type)}</div>
+    ${b.description ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(b.description)}</div>` : `<div style="font-size:13px;color:var(--muted);margin-top:.5rem">Kein Kommentar</div>`}
+    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+  `);
       }
 
       function editBillingEntry(id) {
