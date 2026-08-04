@@ -112,6 +112,27 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW()
       );
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS billing_item_id INTEGER REFERENCES billing_items(id) ON DELETE SET NULL;
+
+      CREATE TABLE IF NOT EXISTS billing_entries (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+        service_date DATE NOT NULL,
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        duration_minutes INTEGER,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        source_type VARCHAR(20) NOT NULL,
+        source_external_id VARCHAR(255),
+        source_metadata JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS billing_entry_id INTEGER REFERENCES billing_entries(id) ON DELETE SET NULL;
+      ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS label TEXT;
+      ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS item_date DATE;
+      ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
     `);
     console.log("DB ready");
   } finally {
@@ -407,14 +428,41 @@ app.get("/api/google/events", auth, async (req, res) => {
 
 // ── Import: Kalender & E-Mails für Abrechnung ───────────────────────────────────
 
+function berlinOffsetMinutes(utcDate) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(utcDate).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  const asUTC = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour === "24" ? 0 : parts.hour, parts.minute, parts.second);
+  return (asUTC - utcDate.getTime()) / 60000;
+}
+
+function berlinLocalToUTC(y, m, d, hh = 0, mm = 0) {
+  const naiveUTC = new Date(Date.UTC(y, m - 1, d, hh, mm));
+  const offsetMin = berlinOffsetMinutes(naiveUTC);
+  return new Date(naiveUTC.getTime() - offsetMin * 60000);
+}
+
+function berlinMonthBounds(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  const from = berlinLocalToUTC(y, m, 1);
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const nextYear = m === 12 ? y + 1 : y;
+  const to = berlinLocalToUTC(nextYear, nextMonth, 1);
+  return { from, to };
+}
+
 app.get("/api/import/calendar-events", auth, async (req, res) => {
   const { year, month } = req.query;
   if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
   const accessToken = await getValidAccessToken(req.user.id);
   if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
 
-  const from = new Date(Date.UTC(year, month - 1, 1));
-  const to = new Date(Date.UTC(year, month, 1));
+  const { from, to } = berlinMonthBounds(year, month);
   const params = new URLSearchParams({
     timeMin: from.toISOString(),
     timeMax: to.toISOString(),
@@ -434,14 +482,21 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
   const reviewedIds = new Set(reviewed.rows.map((row) => row.source_id));
 
   const events = (data.items || [])
-    .filter((e) => !reviewedIds.has(e.id))
+    .filter((e) => e.status !== "cancelled" && !reviewedIds.has(e.id))
     .map((e) => ({
       id: e.id,
-      summary: e.summary || "(Ohne Titel)",
+      source_type: "calendar",
+      title: e.summary || "(Ohne Titel)",
       description: e.description || "",
       start: e.start.date || e.start.dateTime,
       end: e.end.date || e.end.dateTime,
       allDay: !!e.start.date,
+      organizer: e.organizer ? e.organizer.displayName || e.organizer.email || "" : "",
+      attendees: (e.attendees || []).map((a) => ({
+        name: a.displayName || a.email,
+        email: a.email,
+        responseStatus: a.responseStatus,
+      })),
     }));
   res.json(events);
 });
@@ -452,8 +507,7 @@ app.get("/api/import/emails", auth, async (req, res) => {
   const accessToken = await getValidAccessToken(req.user.id);
   if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
 
-  const from = new Date(Date.UTC(year, month - 1, 1));
-  const to = new Date(Date.UTC(year, month, 1));
+  const { from, to } = berlinMonthBounds(year, month);
   const fmtQ = (d) =>
     `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}`;
   const q = `in:sent after:${fmtQ(from)} before:${fmtQ(to)}`;
@@ -483,6 +537,7 @@ app.get("/api/import/emails", auth, async (req, res) => {
     const metaParams = new URLSearchParams({ format: "metadata" });
     metaParams.append("metadataHeaders", "Subject");
     metaParams.append("metadataHeaders", "Date");
+    metaParams.append("metadataHeaders", "To");
     const mr = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?${metaParams}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -492,9 +547,12 @@ app.get("/api/import/emails", auth, async (req, res) => {
     const headers = m.payload?.headers || [];
     const subject = headers.find((h) => h.name === "Subject")?.value || "(Kein Betreff)";
     const dateHeader = headers.find((h) => h.name === "Date")?.value;
+    const to_ = headers.find((h) => h.name === "To")?.value || "";
     emails.push({
       id: m.id,
-      subject,
+      source_type: "email",
+      title: subject,
+      to: to_,
       snippet: m.snippet || "",
       sentAt: dateHeader ? new Date(dateHeader).toISOString() : null,
     });
@@ -517,7 +575,13 @@ function extractEmailBody(payload) {
   }
   if (payload.mimeType === "text/html" && payload.body?.data) {
     const html = Buffer.from(payload.body.data, "base64url").toString("utf-8");
-    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   return "";
 }
@@ -535,32 +599,69 @@ app.get("/api/import/emails/:id/body", auth, async (req, res) => {
 });
 
 app.post("/api/import/confirm", auth, async (req, res) => {
-  const { source_type, source_id, project_id, date, hours, description } = req.body;
-  if (!source_type || !source_id || !date || !hours) {
-    return res.status(400).json({ error: "source_type, source_id, date und hours erforderlich" });
+  const {
+    source_type, source_id, project_id,
+    service_date, start_time, end_time, duration_minutes,
+    title, description, metadata,
+  } = req.body;
+  if (!source_type || !source_id || !service_date || !title || !duration_minutes) {
+    return res.status(400).json({ error: "service_date, title und duration_minutes erforderlich" });
   }
-  const item = await pool.query(
-    "INSERT INTO billing_items (user_id,project_id,date,hours,description,source_type,source_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-    [req.user.id, project_id || null, date, hours, description || null, source_type, source_id]
+  const entry = await pool.query(
+    `INSERT INTO billing_entries
+       (user_id,project_id,service_date,start_time,end_time,duration_minutes,title,description,source_type,source_external_id,source_metadata)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [
+      req.user.id, project_id || null, service_date,
+      start_time || null, end_time || null, duration_minutes,
+      title, description || null, source_type, source_id,
+      metadata ? JSON.stringify(metadata) : null,
+    ]
   );
   await pool.query(
-    `INSERT INTO import_reviews (user_id,source_type,source_id,status,billing_item_id)
-     VALUES ($1,$2,$3,'confirmed',$4)
-     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='confirmed', billing_item_id=$4`,
-    [req.user.id, source_type, source_id, item.rows[0].id]
+    `INSERT INTO import_reviews (user_id,source_type,source_id,status,billing_entry_id,label,item_date,updated_at)
+     VALUES ($1,$2,$3,'confirmed',$4,$5,$6,NOW())
+     ON CONFLICT (user_id,source_type,source_id)
+     DO UPDATE SET status='confirmed', billing_entry_id=$4, label=$5, item_date=$6, updated_at=NOW()`,
+    [req.user.id, source_type, source_id, entry.rows[0].id, title, service_date]
   );
-  res.json(item.rows[0]);
+  res.json(entry.rows[0]);
 });
 
 app.post("/api/import/ignore", auth, async (req, res) => {
+  const { source_type, source_id, label, item_date } = req.body;
+  if (!source_type || !source_id) return res.status(400).json({ error: "source_type und source_id erforderlich" });
+  await pool.query(
+    `INSERT INTO import_reviews (user_id,source_type,source_id,status,label,item_date,updated_at)
+     VALUES ($1,$2,$3,'ignored',$4,$5,NOW())
+     ON CONFLICT (user_id,source_type,source_id)
+     DO UPDATE SET status='ignored', label=$4, item_date=$5, updated_at=NOW()`,
+    [req.user.id, source_type, source_id, label || null, item_date || null]
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/import/restore", auth, async (req, res) => {
   const { source_type, source_id } = req.body;
   if (!source_type || !source_id) return res.status(400).json({ error: "source_type und source_id erforderlich" });
   await pool.query(
-    `INSERT INTO import_reviews (user_id,source_type,source_id,status) VALUES ($1,$2,$3,'ignored')
-     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='ignored'`,
+    "DELETE FROM import_reviews WHERE user_id=$1 AND source_type=$2 AND source_id=$3 AND status='ignored'",
     [req.user.id, source_type, source_id]
   );
   res.json({ ok: true });
+});
+
+app.get("/api/import/ignored", auth, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
+  const result = await pool.query(
+    `SELECT source_type, source_id, label, item_date FROM import_reviews
+     WHERE user_id=$1 AND status='ignored' AND item_date IS NOT NULL
+       AND EXTRACT(YEAR FROM item_date)=$2 AND EXTRACT(MONTH FROM item_date)=$3
+     ORDER BY item_date`,
+    [req.user.id, year, month]
+  );
+  res.json(result.rows);
 });
 
 // ── Abrechnungspositionen ────────────────────────────────────────────────────
@@ -569,31 +670,51 @@ app.get("/api/billing", auth, async (req, res) => {
   const { year, month } = req.query;
   if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
   const result = await pool.query(
-    `SELECT b.*, p.name as project_name, p.color as project_color
-     FROM billing_items b
+    `SELECT b.*, p.name as project_name, p.color as project_color, p.external_id as project_ref
+     FROM billing_entries b
      LEFT JOIN projects p ON p.id = b.project_id
      WHERE b.user_id=$1
-       AND EXTRACT(YEAR FROM b.date)=$2 AND EXTRACT(MONTH FROM b.date)=$3
-     ORDER BY b.date`,
+       AND EXTRACT(YEAR FROM b.service_date)=$2 AND EXTRACT(MONTH FROM b.service_date)=$3
+     ORDER BY b.service_date`,
     [req.user.id, year, month]
   );
   res.json(result.rows);
 });
 
+app.put("/api/billing/:id", auth, async (req, res) => {
+  const { project_id, service_date, start_time, end_time, duration_minutes, title, description } = req.body;
+  if (!service_date || !title || !duration_minutes) {
+    return res.status(400).json({ error: "service_date, title und duration_minutes erforderlich" });
+  }
+  const result = await pool.query(
+    `UPDATE billing_entries SET
+       project_id=$1, service_date=$2, start_time=$3, end_time=$4,
+       duration_minutes=$5, title=$6, description=$7, updated_at=NOW()
+     WHERE id=$8 AND user_id=$9 RETURNING *`,
+    [
+      project_id || null, service_date, start_time || null, end_time || null,
+      duration_minutes, title, description || null, req.params.id, req.user.id,
+    ]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(result.rows[0]);
+});
+
 app.delete("/api/billing/:id", auth, async (req, res) => {
-  await pool.query("DELETE FROM billing_items WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
+  await pool.query("DELETE FROM billing_entries WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
   res.json({ ok: true });
 });
 
 app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const { year, month } = req.params;
   const result = await pool.query(
-    `SELECT b.date, b.hours, b.description, p.name as project_name, p.external_id as project_ref
-     FROM billing_items b
+    `SELECT b.service_date, b.duration_minutes, b.title, b.description, b.source_type,
+            p.name as project_name, p.external_id as project_ref
+     FROM billing_entries b
      LEFT JOIN projects p ON p.id = b.project_id
      WHERE b.user_id=$1
-       AND EXTRACT(YEAR FROM b.date)=$2 AND EXTRACT(MONTH FROM b.date)=$3
-     ORDER BY b.date`,
+       AND EXTRACT(YEAR FROM b.service_date)=$2 AND EXTRACT(MONTH FROM b.service_date)=$3
+     ORDER BY b.service_date`,
     [req.user.id, year, month]
   );
 
@@ -601,9 +722,11 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const sheet = workbook.addWorksheet("Abrechnung");
   sheet.columns = [
     { header: "Datum", key: "date", width: 12 },
+    { header: "Titel", key: "title", width: 30 },
     { header: "Projekt", key: "project", width: 24 },
     { header: "Auftragsnummer", key: "ref", width: 16 },
-    { header: "Stunden", key: "hours", width: 10 },
+    { header: "Dauer (Std)", key: "hours", width: 12 },
+    { header: "Quelle", key: "source", width: 12 },
     { header: "Beschreibung", key: "desc", width: 40 },
   ];
   sheet.getRow(1).font = { bold: true };
@@ -612,10 +735,12 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
 
   for (const r of result.rows) {
     sheet.addRow({
-      date: new Date(r.date),
+      date: new Date(r.service_date),
+      title: r.title,
       project: r.project_name || "",
       ref: r.project_ref || "",
-      hours: parseFloat(r.hours),
+      hours: r.duration_minutes ? Math.round((r.duration_minutes / 60) * 100) / 100 : 0,
+      source: r.source_type || "",
       desc: r.description || "",
     });
   }

@@ -850,24 +850,42 @@
           <div id="historyContent"></div>
         </div>
 
-        <!-- Urlaub -->
-        <div class="page" id="page-vacation">
-          <div class="month-nav">
-            <button onclick="vacMonth(-1)">‹</button>
-            <span class="month-label" id="vacMonthLabel">–</span>
-            <button onclick="vacMonth(1)">›</button>
-          </div>
-          <div id="vacContent"></div>
-        </div>
-
         <!-- Organizer -->
         <div class="page" id="page-organizer">
-          <div class="month-nav">
-            <button onclick="orgMonth(-1)">‹</button>
-            <span class="month-label" id="orgMonthLabel">–</span>
-            <button onclick="orgMonth(1)">›</button>
+          <div class="auth-tabs" style="margin-bottom: 1rem">
+            <button
+              class="auth-tab active"
+              id="orgTabBilling"
+              onclick="switchOrganizerSubTab('billing')"
+            >
+              Abrechnung
+            </button>
+            <button
+              class="auth-tab"
+              id="orgTabAbsences"
+              onclick="switchOrganizerSubTab('absences')"
+            >
+              Abwesenheiten
+            </button>
           </div>
-          <div id="organizerContent"></div>
+
+          <div id="organizerBillingView">
+            <div class="month-nav">
+              <button onclick="orgMonth(-1)">‹</button>
+              <span class="month-label" id="orgMonthLabel">–</span>
+              <button onclick="orgMonth(1)">›</button>
+            </div>
+            <div id="organizerContent"></div>
+          </div>
+
+          <div id="organizerAbsencesView" style="display: none">
+            <div class="month-nav">
+              <button onclick="vacMonth(-1)">‹</button>
+              <span class="month-label" id="vacMonthLabel">–</span>
+              <button onclick="vacMonth(1)">›</button>
+            </div>
+            <div id="vacContent"></div>
+          </div>
         </div>
 
         <!-- Einstellungen -->
@@ -895,13 +913,6 @@
           data-page="history"
         >
           <span class="nav-icon">history</span>Verlauf
-        </button>
-        <button
-          class="nav-btn"
-          onclick="showPage('vacation')"
-          data-page="vacation"
-        >
-          <span class="nav-icon">beach_access</span>Urlaub
         </button>
         <button
           class="nav-btn"
@@ -1103,10 +1114,27 @@
 
         if (page === "home") loadHome();
         if (page === "history") loadHistory();
-        if (page === "vacation") loadVacation();
-        if (page === "organizer") loadOrganizer();
+        if (page === "organizer") switchOrganizerSubTab(organizerSubTab);
         if (page === "settings") renderSettings();
         if (page === "admin") loadAdmin();
+      }
+
+      let organizerSubTab = "billing";
+
+      function switchOrganizerSubTab(tab) {
+        organizerSubTab = tab;
+        document
+          .getElementById("orgTabBilling")
+          .classList.toggle("active", tab === "billing");
+        document
+          .getElementById("orgTabAbsences")
+          .classList.toggle("active", tab === "absences");
+        document.getElementById("organizerBillingView").style.display =
+          tab === "billing" ? "block" : "none";
+        document.getElementById("organizerAbsencesView").style.display =
+          tab === "absences" ? "block" : "none";
+        if (tab === "billing") loadOrganizer();
+        else loadVacation();
       }
 
       // ── Home / Today ─────────────────────────────────────────────────
@@ -1597,7 +1625,13 @@
       let importEvents = [];
       let importEmails = [];
       let importView = null;
-      let billingItems = [];
+      let billingEntries = [];
+      let ignoredItems = [];
+      let showIgnored = false;
+      let billingFilterProject = "";
+      let billingFilterSource = "";
+
+      const SOURCE_LABELS = { calendar: "📅 Kalender", email: "✉️ E-Mail", manual: "✏️ Manuell" };
 
       function orgMonth(dir) {
         orgMon += dir;
@@ -1612,6 +1646,20 @@
         loadOrganizer();
       }
 
+      function escapeHtml(s) {
+        return (s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function formatDuration(min) {
+        if (min == null) return "–";
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        return m ? `${h}:${String(m).padStart(2, "0")}h` : `${h}h`;
+      }
+
       async function loadOrganizer() {
         const MONTHS = [
           "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -1624,9 +1672,14 @@
         importView = null;
         showSpinner("organizerContent");
         try {
-          billingItems = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
         } catch (e) {
-          billingItems = [];
+          billingEntries = [];
+        }
+        try {
+          ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
+        } catch (e) {
+          ignoredItems = [];
         }
         renderOrganizer();
       }
@@ -1643,37 +1696,104 @@
     </div>
 
     <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleIgnoredList()">
+        <div class="card-title" style="margin-bottom:0">🚫 Ignorierte Hinweise (<span id="ignoredCount">${ignoredItems.length}</span>)</div>
+        <span class="nav-icon" id="ignoredChevron" style="font-size:18px">${showIgnored ? "expand_less" : "expand_more"}</span>
+      </div>
+      <div id="ignoredListCard" style="margin-top:.5rem; ${showIgnored ? "" : "display:none"}"></div>
+    </div>
+
+    <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
         <div class="card-title" style="margin-bottom:0">Abrechnungspositionen</div>
         <button class="btn btn-secondary btn-sm" style="width:auto" id="billingExportBtn" onclick="exportBillingExcel()">📥 Export</button>
       </div>
+      <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
+        <select id="billingFilterProject" onchange="applyBillingFilters()" style="flex:1">
+          <option value="">Alle Projekte</option>
+          ${projects.map((p) => `<option value="${p.id}" ${billingFilterProject == p.id ? "selected" : ""}>${p.name}</option>`).join("")}
+        </select>
+        <select id="billingFilterSource" onchange="applyBillingFilters()" style="flex:1">
+          <option value="">Alle Quellen</option>
+          <option value="calendar" ${billingFilterSource === "calendar" ? "selected" : ""}>Kalender</option>
+          <option value="email" ${billingFilterSource === "email" ? "selected" : ""}>E-Mail</option>
+        </select>
+      </div>
       <div id="billingListCard"></div>
     </div>
   `;
+        renderIgnoredList();
+        renderBillingList();
+      }
+
+      function toggleIgnoredList() {
+        showIgnored = !showIgnored;
+        document.getElementById("ignoredListCard").style.display = showIgnored ? "block" : "none";
+        document.getElementById("ignoredChevron").textContent = showIgnored ? "expand_less" : "expand_more";
+      }
+
+      function renderIgnoredList() {
+        const el = document.getElementById("ignoredListCard");
+        if (!ignoredItems.length) {
+          el.innerHTML = "<div style='color:var(--muted);font-size:13px'>Keine ignorierten Hinweise diesen Monat</div>";
+          return;
+        }
+        el.innerHTML = ignoredItems
+          .map(
+            (it) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="flex:1;font-size:14px">
+        ${it.item_date ? new Date(it.item_date).toLocaleDateString("de-DE", { day: "numeric", month: "short" }) : ""} · ${escapeHtml(it.label) || "(ohne Titel)"}
+        <span class="tag" style="margin-left:4px">${SOURCE_LABELS[it.source_type] || it.source_type}</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="restoreImportItem('${it.source_type}','${it.source_id}')">Wiederherstellen</button>
+    </div>
+  `,
+          )
+          .join("");
+      }
+
+      async function restoreImportItem(sourceType, sourceId) {
+        await api("POST", "/import/restore", { source_type: sourceType, source_id: sourceId });
+        ignoredItems = ignoredItems.filter((it) => !(it.source_type === sourceType && it.source_id === sourceId));
+        document.getElementById("ignoredCount").textContent = ignoredItems.length;
+        renderIgnoredList();
+      }
+
+      function applyBillingFilters() {
+        billingFilterProject = document.getElementById("billingFilterProject").value;
+        billingFilterSource = document.getElementById("billingFilterSource").value;
         renderBillingList();
       }
 
       function renderBillingList() {
         const el = document.getElementById("billingListCard");
-        const totalHours = billingItems.reduce((s, b) => s + parseFloat(b.hours), 0);
+        const filtered = billingEntries.filter(
+          (b) =>
+            (!billingFilterProject || String(b.project_id) === billingFilterProject) &&
+            (!billingFilterSource || b.source_type === billingFilterSource),
+        );
+        const totalMinutes = filtered.reduce((s, b) => s + (b.duration_minutes || 0), 0);
         const btn = document.getElementById("billingExportBtn");
-        if (btn) btn.disabled = billingItems.length === 0;
-        if (!billingItems.length) {
+        if (btn) btn.disabled = billingEntries.length === 0;
+        if (!filtered.length) {
           el.innerHTML =
-            "<div style='color:var(--muted);font-size:13px'>Noch keine Abrechnungspositionen diesen Monat</div>";
+            "<div style='color:var(--muted);font-size:13px'>Keine Abrechnungspositionen</div>";
           return;
         }
         el.innerHTML =
-          `<div style="font-size:13px;color:var(--muted);margin-bottom:.5rem">${totalHours.toFixed(1)}h gesamt</div>` +
-          billingItems
+          `<div style="font-size:13px;color:var(--muted);margin-bottom:.5rem">${formatDuration(totalMinutes)} gesamt</div>` +
+          filtered
             .map(
               (b) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div style="flex:1;font-size:14px">
-        ${new Date(b.date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} · ${parseFloat(b.hours).toFixed(1)}h
+        ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} · ${formatDuration(b.duration_minutes)} · ${escapeHtml(b.title)}
         ${b.project_name ? `<span class="tag" style="background:${b.project_color}30;color:${b.project_color};margin-left:4px">${b.project_name}</span>` : ""}
-        ${b.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${b.description}</div>` : ""}
+        <span class="tag" style="margin-left:4px">${SOURCE_LABELS[b.source_type] || b.source_type}</span>
+        ${b.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(b.description)}</div>` : ""}
       </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='editBillingEntry(${JSON.stringify(b).replace(/"/g, "&quot;")})'>✏️</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="deleteBillingItem(${b.id})">✕</button>
     </div>
   `,
@@ -1681,10 +1801,56 @@
             .join("");
       }
 
+      function editBillingEntry(b) {
+        showModal(`
+    <div class="modal-title">Abrechnungsposition bearbeiten</div>
+    <div class="form-group"><label>Projekt</label>
+      <select id="editBillProject">
+        <option value="">– Kein Projekt –</option>
+        ${projects.map((p) => `<option value="${p.id}" ${p.id == b.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Leistungsdatum</label><input type="date" id="editBillDate" value="${new Date(b.service_date).toISOString().slice(0, 10)}" /></div>
+    <div class="form-group"><label>Start</label><input type="datetime-local" id="editBillStart" value="${b.start_time ? berlinLocalInput(b.start_time) : ""}" oninput="recalcDuration('editBillStart','editBillEnd','editBillDuration')" /></div>
+    <div class="form-group"><label>Ende</label><input type="datetime-local" id="editBillEnd" value="${b.end_time ? berlinLocalInput(b.end_time) : ""}" oninput="recalcDuration('editBillStart','editBillEnd','editBillDuration')" /></div>
+    <div class="form-group"><label>Dauer (Minuten)</label><input type="number" id="editBillDuration" min="1" value="${b.duration_minutes || ""}" /></div>
+    <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
+    <div class="form-group"><label>Beschreibung</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
+    <button class="btn btn-primary" onclick="saveBillingEntry(${b.id})">Speichern</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function saveBillingEntry(id) {
+        const project_id = document.getElementById("editBillProject").value || null;
+        const service_date = document.getElementById("editBillDate").value;
+        const startVal = document.getElementById("editBillStart").value;
+        const endVal = document.getElementById("editBillEnd").value;
+        const duration_minutes = parseInt(document.getElementById("editBillDuration").value);
+        const title = document.getElementById("editBillTitle").value;
+        const description = document.getElementById("editBillDesc").value || null;
+        if (!service_date || !title || !duration_minutes) {
+          return alert("Leistungsdatum, Titel und Dauer sind erforderlich");
+        }
+        try {
+          await api("PUT", `/billing/${id}`, {
+            project_id, service_date,
+            start_time: startVal ? new Date(startVal).toISOString() : null,
+            end_time: endVal ? new Date(endVal).toISOString() : null,
+            duration_minutes, title, description,
+          });
+          closeModal();
+          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+          renderBillingList();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
       async function deleteBillingItem(id) {
         if (!confirm("Abrechnungsposition löschen?")) return;
         await api("DELETE", `/billing/${id}`, {});
-        billingItems = billingItems.filter((b) => b.id !== id);
+        billingEntries = billingEntries.filter((b) => b.id !== id);
         renderBillingList();
       }
 
@@ -1755,28 +1921,53 @@
         }
         el.innerHTML = list
           .map((item) => {
-            const label = importView === "email" ? item.subject : item.summary;
             const dateStr =
               importView === "email"
                 ? fmtDate(item.sentAt)
-                : `${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtDate(item.end) : ""}`;
+                : `${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtTime(item.end) : ""}`;
+            const subline =
+              importView === "email"
+                ? item.to
+                  ? `An: ${item.to}`
+                  : ""
+                : [
+                    item.organizer ? `Organisator: ${item.organizer}` : "",
+                    item.attendees?.length ? `${item.attendees.length} Teilnehmer` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
             return `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <div style="flex:1;font-size:14px">${dateStr} · ${label}</div>
-      ${importView === "email" ? `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="showEmailDetails('${item.id}')">Details</button>` : ""}
+      <div style="flex:1;font-size:14px">
+        ${dateStr} · ${escapeHtml(item.title)}
+        ${subline ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(subline)}</div>` : ""}
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='showItemDetails(${JSON.stringify(item).replace(/"/g, "&quot;")})'>Details</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick='showImportConfirmModal(${JSON.stringify(item).replace(/"/g, "&quot;")})'>Übernehmen</button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreImport('${item.id}')">✕</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='ignoreImportItem(${JSON.stringify(item).replace(/"/g, "&quot;")})'>✕</button>
     </div>
   `;
           })
           .join("");
       }
 
-      function escapeHtml(s) {
-        return (s || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
+      function showItemDetails(item) {
+        if (importView === "email") {
+          showEmailDetails(item.id);
+          return;
+        }
+        const attendeesHtml =
+          (item.attendees || [])
+            .map((a) => `${a.name}${a.responseStatus ? ` (${a.responseStatus})` : ""}`)
+            .join(", ") || "–";
+        showModal(`
+    <div class="modal-title">${escapeHtml(item.title)}</div>
+    <div style="font-size:13px;color:var(--muted)">${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtDate(item.end) : ""}</div>
+    <div style="font-size:13px"><strong>Organisator:</strong> ${escapeHtml(item.organizer) || "–"}</div>
+    <div style="font-size:13px"><strong>Teilnehmer:</strong> ${escapeHtml(attendeesHtml)}</div>
+    ${item.description ? `<div style="font-size:13px;white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(item.description)}</div>` : ""}
+    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+  `);
       }
 
       async function showEmailDetails(id) {
@@ -1799,64 +1990,118 @@
         }
       }
 
-      function showImportConfirmModal(item) {
+      function recalcDuration(startId, endId, durationId) {
+        const startEl = document.getElementById(startId);
+        const endEl = document.getElementById(endId);
+        const durEl = document.getElementById(durationId);
+        if (!startEl || !endEl || !durEl) return;
+        if (startEl.value && endEl.value) {
+          const mins = Math.round((new Date(endEl.value) - new Date(startEl.value)) / 60000);
+          if (mins > 0) durEl.value = mins;
+        }
+      }
+
+      async function showImportConfirmModal(item) {
         const isEmail = importView === "email";
-        const date = isEmail
+        let description = "";
+        let metadata = {};
+
+        if (isEmail) {
+          metadata = { to: item.to, snippet: item.snippet };
+          try {
+            const { body } = await api("GET", `/import/emails/${item.id}/body`);
+            description = (body || "").slice(0, 500);
+          } catch (e) {
+            description = item.snippet || "";
+          }
+        } else {
+          metadata = { organizer: item.organizer, attendees: item.attendees, allDay: item.allDay };
+          description = item.description || "";
+        }
+
+        const serviceDate = isEmail
           ? berlinLocalInput(item.sentAt).slice(0, 10)
           : berlinLocalInput(item.start).slice(0, 10);
-        const hours = isEmail
-          ? ""
-          : Math.round(((new Date(item.end) - new Date(item.start)) / 3600000) * 100) / 100;
-        const description = (isEmail ? item.subject : item.summary) || "";
+        const startVal = isEmail ? "" : berlinLocalInput(item.start);
+        const endVal = isEmail
+          ? berlinLocalInput(item.sentAt)
+          : berlinLocalInput(new Date(new Date(item.end).getTime() + 5 * 60000).toISOString());
+
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
-    ${isEmail ? `<div style="font-size:12px;color:var(--muted)">Datum kommt vom Versendet-Zeitpunkt — Stunden bitte nach Aufwand eintragen.</div>` : ""}
+    ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keinen Start — bitte Start oder Dauer selbst festlegen.</div>` : ""}
     <div class="form-group"><label>Projekt</label>
       <select id="impProject">
         <option value="">– Kein Projekt –</option>
         ${projects.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}
       </select>
     </div>
-    <div class="form-group"><label>Datum</label><input type="date" id="impDate" value="${date}" /></div>
-    <div class="form-group"><label>Stunden</label><input type="number" id="impHours" step="0.25" min="0" value="${hours}" /></div>
-    <div class="form-group"><label>Beschreibung</label><input type="text" id="impDesc" value="${description.replace(/"/g, "&quot;")}" /></div>
-    <button class="btn btn-primary" onclick='confirmImport(${JSON.stringify(item.id)})'>Übernehmen</button>
+    <div class="form-group"><label>Leistungsdatum</label><input type="date" id="impDate" value="${serviceDate}" /></div>
+    <div class="form-group"><label>Start</label><input type="datetime-local" id="impStart" value="${startVal}" oninput="recalcDuration('impStart','impEnd','impDuration')" /></div>
+    <div class="form-group"><label>Ende</label><input type="datetime-local" id="impEnd" value="${endVal}" oninput="recalcDuration('impStart','impEnd','impDuration')" /></div>
+    <div class="form-group"><label>Dauer (Minuten)</label><input type="number" id="impDuration" min="1" value="" /></div>
+    <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
+    <div class="form-group"><label>Beschreibung</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
+    <button class="btn btn-primary" onclick='confirmImport(${JSON.stringify(item.id)}, ${JSON.stringify(metadata).replace(/"/g, "&quot;")})'>Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
+        recalcDuration("impStart", "impEnd", "impDuration");
       }
 
-      async function confirmImport(id) {
+      async function confirmImport(id, metadata) {
         const project_id = document.getElementById("impProject").value || null;
-        const date = document.getElementById("impDate").value;
-        const hours = parseFloat(document.getElementById("impHours").value);
-        if (!date || !hours) return alert("Datum und Stunden erforderlich");
+        const service_date = document.getElementById("impDate").value;
+        const startVal = document.getElementById("impStart").value;
+        const endVal = document.getElementById("impEnd").value;
+        const duration_minutes = parseInt(document.getElementById("impDuration").value);
+        const title = document.getElementById("impTitle").value;
         const description = document.getElementById("impDesc").value || null;
+        if (!service_date || !title || !duration_minutes) {
+          return alert("Leistungsdatum, Titel und Dauer sind erforderlich");
+        }
         try {
           await api("POST", "/import/confirm", {
             source_type: importView,
             source_id: id,
             project_id,
-            date,
-            hours,
+            service_date,
+            start_time: startVal ? new Date(startVal).toISOString() : null,
+            end_time: endVal ? new Date(endVal).toISOString() : null,
+            duration_minutes,
+            title,
             description,
+            metadata,
           });
           closeModal();
           if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
           else importEvents = importEvents.filter((e) => e.id !== id);
           renderImportResults();
-          billingItems = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
           renderBillingList();
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function ignoreImport(id) {
+      async function ignoreImportItem(item) {
+        const itemDate =
+          importView === "email"
+            ? berlinLocalInput(item.sentAt).slice(0, 10)
+            : berlinLocalInput(item.start).slice(0, 10);
         try {
-          await api("POST", "/import/ignore", { source_type: importView, source_id: id });
-          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
-          else importEvents = importEvents.filter((e) => e.id !== id);
+          await api("POST", "/import/ignore", {
+            source_type: importView,
+            source_id: item.id,
+            label: item.title,
+            item_date: itemDate,
+          });
+          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== item.id);
+          else importEvents = importEvents.filter((e) => e.id !== item.id);
           renderImportResults();
+          ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
+          const countEl = document.getElementById("ignoredCount");
+          if (countEl) countEl.textContent = ignoredItems.length;
+          if (showIgnored) renderIgnoredList();
         } catch (e) {
           alert(e.message);
         }
