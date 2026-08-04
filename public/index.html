@@ -1653,11 +1653,10 @@
           .replace(/>/g, "&gt;");
       }
 
-      function formatDuration(min) {
-        if (min == null) return "–";
-        const h = Math.floor(min / 60);
-        const m = min % 60;
-        return m ? `${h}:${String(m).padStart(2, "0")}h` : `${h}h`;
+      function formatHours(h) {
+        if (h == null) return "–";
+        const n = parseFloat(h);
+        return (Number.isInteger(n) ? n : n.toFixed(2)) + "h";
       }
 
       async function loadOrganizer() {
@@ -1773,7 +1772,7 @@
             (!billingFilterProject || String(b.project_id) === billingFilterProject) &&
             (!billingFilterSource || b.source_type === billingFilterSource),
         );
-        const totalMinutes = filtered.reduce((s, b) => s + (b.duration_minutes || 0), 0);
+        const totalHours = filtered.reduce((s, b) => s + parseFloat(b.duration_hours || 0), 0);
         const btn = document.getElementById("billingExportBtn");
         if (btn) btn.disabled = billingEntries.length === 0;
         if (!filtered.length) {
@@ -1782,13 +1781,13 @@
           return;
         }
         el.innerHTML =
-          `<div style="font-size:13px;color:var(--muted);margin-bottom:.5rem">${formatDuration(totalMinutes)} gesamt</div>` +
+          `<div style="font-size:13px;color:var(--muted);margin-bottom:.5rem">${formatHours(totalHours)} gesamt</div>` +
           filtered
             .map(
               (b) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div style="flex:1;font-size:14px">
-        ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} · ${formatDuration(b.duration_minutes)} · ${escapeHtml(b.title)}
+        ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} · ${formatHours(b.duration_hours)} · ${escapeHtml(b.title)}
         ${b.project_name ? `<span class="tag" style="background:${b.project_color}30;color:${b.project_color};margin-left:4px">${b.project_name}</span>` : ""}
         <span class="tag" style="margin-left:4px">${SOURCE_LABELS[b.source_type] || b.source_type}</span>
         ${b.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(b.description)}</div>` : ""}
@@ -1802,6 +1801,9 @@
       }
 
       function editBillingEntry(b) {
+        const endVal = b.end_time
+          ? berlinLocalInput(b.end_time)
+          : berlinLocalInput(b.service_date);
         showModal(`
     <div class="modal-title">Abrechnungsposition bearbeiten</div>
     <div class="form-group"><label>Projekt</label>
@@ -1810,10 +1812,8 @@
         ${projects.map((p) => `<option value="${p.id}" ${p.id == b.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
       </select>
     </div>
-    <div class="form-group"><label>Leistungsdatum</label><input type="date" id="editBillDate" value="${new Date(b.service_date).toISOString().slice(0, 10)}" /></div>
-    <div class="form-group"><label>Start</label><input type="datetime-local" id="editBillStart" value="${b.start_time ? berlinLocalInput(b.start_time) : ""}" oninput="recalcDuration('editBillStart','editBillEnd','editBillDuration')" /></div>
-    <div class="form-group"><label>Ende</label><input type="datetime-local" id="editBillEnd" value="${b.end_time ? berlinLocalInput(b.end_time) : ""}" oninput="recalcDuration('editBillStart','editBillEnd','editBillDuration')" /></div>
-    <div class="form-group"><label>Dauer (Minuten)</label><input type="number" id="editBillDuration" min="1" value="${b.duration_minutes || ""}" /></div>
+    <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="editBillEnd" value="${endVal}" /></div>
+    <div class="form-group"><label>Dauer (Stunden)</label><input type="number" id="editBillDuration" step="0.25" min="0.25" value="${b.duration_hours || ""}" /></div>
     <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
     <div class="form-group"><label>Beschreibung</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
     <button class="btn btn-primary" onclick="saveBillingEntry(${b.id})">Speichern</button>
@@ -1823,21 +1823,21 @@
 
       async function saveBillingEntry(id) {
         const project_id = document.getElementById("editBillProject").value || null;
-        const service_date = document.getElementById("editBillDate").value;
-        const startVal = document.getElementById("editBillStart").value;
         const endVal = document.getElementById("editBillEnd").value;
-        const duration_minutes = parseInt(document.getElementById("editBillDuration").value);
+        const duration_hours = parseFloat(document.getElementById("editBillDuration").value);
         const title = document.getElementById("editBillTitle").value;
         const description = document.getElementById("editBillDesc").value || null;
-        if (!service_date || !title || !duration_minutes) {
-          return alert("Leistungsdatum, Titel und Dauer sind erforderlich");
+        if (!endVal || !title || !duration_hours) {
+          return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
         try {
           await api("PUT", `/billing/${id}`, {
-            project_id, service_date,
-            start_time: startVal ? new Date(startVal).toISOString() : null,
-            end_time: endVal ? new Date(endVal).toISOString() : null,
-            duration_minutes, title, description,
+            project_id,
+            service_date: endVal.slice(0, 10),
+            end_time: new Date(endVal).toISOString(),
+            duration_hours,
+            title,
+            description,
           });
           closeModal();
           billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
@@ -1990,21 +1990,11 @@
         }
       }
 
-      function recalcDuration(startId, endId, durationId) {
-        const startEl = document.getElementById(startId);
-        const endEl = document.getElementById(endId);
-        const durEl = document.getElementById(durationId);
-        if (!startEl || !endEl || !durEl) return;
-        if (startEl.value && endEl.value) {
-          const mins = Math.round((new Date(endEl.value) - new Date(startEl.value)) / 60000);
-          if (mins > 0) durEl.value = mins;
-        }
-      }
-
       async function showImportConfirmModal(item) {
         const isEmail = importView === "email";
         let description = "";
         let metadata = {};
+        let durationHours = "";
 
         if (isEmail) {
           metadata = { to: item.to, snippet: item.snippet };
@@ -2017,57 +2007,50 @@
         } else {
           metadata = { organizer: item.organizer, attendees: item.attendees, allDay: item.allDay };
           description = item.description || "";
+          const rawHours = (new Date(item.end) - new Date(item.start)) / 3600000;
+          durationHours = Math.round(rawHours * 4) / 4 || "";
         }
 
-        const serviceDate = isEmail
-          ? berlinLocalInput(item.sentAt).slice(0, 10)
-          : berlinLocalInput(item.start).slice(0, 10);
-        const startVal = isEmail ? "" : berlinLocalInput(item.start);
-        const endVal = isEmail
-          ? berlinLocalInput(item.sentAt)
-          : berlinLocalInput(new Date(new Date(item.end).getTime() + 5 * 60000).toISOString());
+        const endSource = isEmail
+          ? item.sentAt
+          : new Date(new Date(item.end).getTime() + 5 * 60000).toISOString();
+        const endVal = berlinLocalInput(endSource);
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
-    ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keinen Start — bitte Start oder Dauer selbst festlegen.</div>` : ""}
+    ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keine geschätzte Dauer — bitte selbst festlegen.</div>` : ""}
     <div class="form-group"><label>Projekt</label>
       <select id="impProject">
         <option value="">– Kein Projekt –</option>
         ${projects.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}
       </select>
     </div>
-    <div class="form-group"><label>Leistungsdatum</label><input type="date" id="impDate" value="${serviceDate}" /></div>
-    <div class="form-group"><label>Start</label><input type="datetime-local" id="impStart" value="${startVal}" oninput="recalcDuration('impStart','impEnd','impDuration')" /></div>
-    <div class="form-group"><label>Ende</label><input type="datetime-local" id="impEnd" value="${endVal}" oninput="recalcDuration('impStart','impEnd','impDuration')" /></div>
-    <div class="form-group"><label>Dauer (Minuten)</label><input type="number" id="impDuration" min="1" value="" /></div>
+    <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
+    <div class="form-group"><label>Dauer (Stunden)</label><input type="number" id="impDuration" step="0.25" min="0.25" value="${durationHours}" /></div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
     <div class="form-group"><label>Beschreibung</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
     <button class="btn btn-primary" onclick='confirmImport(${JSON.stringify(item.id)}, ${JSON.stringify(metadata).replace(/"/g, "&quot;")})'>Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
-        recalcDuration("impStart", "impEnd", "impDuration");
       }
 
       async function confirmImport(id, metadata) {
         const project_id = document.getElementById("impProject").value || null;
-        const service_date = document.getElementById("impDate").value;
-        const startVal = document.getElementById("impStart").value;
         const endVal = document.getElementById("impEnd").value;
-        const duration_minutes = parseInt(document.getElementById("impDuration").value);
+        const duration_hours = parseFloat(document.getElementById("impDuration").value);
         const title = document.getElementById("impTitle").value;
         const description = document.getElementById("impDesc").value || null;
-        if (!service_date || !title || !duration_minutes) {
-          return alert("Leistungsdatum, Titel und Dauer sind erforderlich");
+        if (!endVal || !title || !duration_hours) {
+          return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
         try {
           await api("POST", "/import/confirm", {
             source_type: importView,
             source_id: id,
             project_id,
-            service_date,
-            start_time: startVal ? new Date(startVal).toISOString() : null,
-            end_time: endVal ? new Date(endVal).toISOString() : null,
-            duration_minutes,
+            service_date: endVal.slice(0, 10),
+            end_time: new Date(endVal).toISOString(),
+            duration_hours,
             title,
             description,
             metadata,

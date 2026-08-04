@@ -118,9 +118,8 @@ async function initDB() {
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
         service_date DATE NOT NULL,
-        start_time TIMESTAMP,
         end_time TIMESTAMP,
-        duration_minutes INTEGER,
+        duration_hours DECIMAL(5,2) NOT NULL,
         title VARCHAR(255) NOT NULL,
         description TEXT,
         source_type VARCHAR(20) NOT NULL,
@@ -129,6 +128,9 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE billing_entries DROP COLUMN IF EXISTS start_time;
+      ALTER TABLE billing_entries DROP COLUMN IF EXISTS duration_minutes;
+      ALTER TABLE billing_entries ADD COLUMN IF NOT EXISTS duration_hours DECIMAL(5,2);
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS billing_entry_id INTEGER REFERENCES billing_entries(id) ON DELETE SET NULL;
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS label TEXT;
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS item_date DATE;
@@ -601,19 +603,19 @@ app.get("/api/import/emails/:id/body", auth, async (req, res) => {
 app.post("/api/import/confirm", auth, async (req, res) => {
   const {
     source_type, source_id, project_id,
-    service_date, start_time, end_time, duration_minutes,
+    service_date, end_time, duration_hours,
     title, description, metadata,
   } = req.body;
-  if (!source_type || !source_id || !service_date || !title || !duration_minutes) {
-    return res.status(400).json({ error: "service_date, title und duration_minutes erforderlich" });
+  if (!source_type || !source_id || !service_date || !title || !duration_hours) {
+    return res.status(400).json({ error: "service_date, title und duration_hours erforderlich" });
   }
   const entry = await pool.query(
     `INSERT INTO billing_entries
-       (user_id,project_id,service_date,start_time,end_time,duration_minutes,title,description,source_type,source_external_id,source_metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+       (user_id,project_id,service_date,end_time,duration_hours,title,description,source_type,source_external_id,source_metadata)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
     [
       req.user.id, project_id || null, service_date,
-      start_time || null, end_time || null, duration_minutes,
+      end_time || null, duration_hours,
       title, description || null, source_type, source_id,
       metadata ? JSON.stringify(metadata) : null,
     ]
@@ -682,18 +684,18 @@ app.get("/api/billing", auth, async (req, res) => {
 });
 
 app.put("/api/billing/:id", auth, async (req, res) => {
-  const { project_id, service_date, start_time, end_time, duration_minutes, title, description } = req.body;
-  if (!service_date || !title || !duration_minutes) {
-    return res.status(400).json({ error: "service_date, title und duration_minutes erforderlich" });
+  const { project_id, service_date, end_time, duration_hours, title, description } = req.body;
+  if (!service_date || !title || !duration_hours) {
+    return res.status(400).json({ error: "service_date, title und duration_hours erforderlich" });
   }
   const result = await pool.query(
     `UPDATE billing_entries SET
-       project_id=$1, service_date=$2, start_time=$3, end_time=$4,
-       duration_minutes=$5, title=$6, description=$7, updated_at=NOW()
-     WHERE id=$8 AND user_id=$9 RETURNING *`,
+       project_id=$1, service_date=$2, end_time=$3,
+       duration_hours=$4, title=$5, description=$6, updated_at=NOW()
+     WHERE id=$7 AND user_id=$8 RETURNING *`,
     [
-      project_id || null, service_date, start_time || null, end_time || null,
-      duration_minutes, title, description || null, req.params.id, req.user.id,
+      project_id || null, service_date, end_time || null,
+      duration_hours, title, description || null, req.params.id, req.user.id,
     ]
   );
   if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
@@ -708,7 +710,7 @@ app.delete("/api/billing/:id", auth, async (req, res) => {
 app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const { year, month } = req.params;
   const result = await pool.query(
-    `SELECT b.service_date, b.duration_minutes, b.title, b.description, b.source_type,
+    `SELECT b.service_date, b.duration_hours, b.title, b.description, b.source_type,
             p.name as project_name, p.external_id as project_ref
      FROM billing_entries b
      LEFT JOIN projects p ON p.id = b.project_id
@@ -739,7 +741,7 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
       title: r.title,
       project: r.project_name || "",
       ref: r.project_ref || "",
-      hours: r.duration_minutes ? Math.round((r.duration_minutes / 60) * 100) / 100 : 0,
+      hours: parseFloat(r.duration_hours) || 0,
       source: r.source_type || "",
       desc: r.description || "",
     });
