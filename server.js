@@ -88,6 +88,17 @@ async function initDB() {
       ALTER TABLE absences ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN DEFAULT false;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS accent_color VARCHAR(7);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS tracking_start_date DATE;
+
+      CREATE TABLE IF NOT EXISTS import_reviews (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        source_type VARCHAR(10) NOT NULL,
+        source_id VARCHAR(255) NOT NULL,
+        status VARCHAR(10) NOT NULL,
+        time_entry_id INTEGER REFERENCES time_entries(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, source_type, source_id)
+      );
     `);
     console.log("DB ready");
   } finally {
@@ -213,7 +224,8 @@ app.get("/api/geocode", auth, async (req, res) => {
 
 // ── Google Calendar ──────────────────────────────────────────────────────────
 
-const GOOGLE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const GOOGLE_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly";
 
 async function getValidAccessToken(userId) {
   const result = await pool.query(
@@ -378,6 +390,131 @@ app.get("/api/google/events", auth, async (req, res) => {
     allDay: !!e.start.date,
   }));
   res.json(events);
+});
+
+// ── Import: Kalender & E-Mails für Abrechnung ───────────────────────────────────
+
+app.get("/api/import/calendar-events", auth, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
+  const accessToken = await getValidAccessToken(req.user.id);
+  if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
+
+  const from = new Date(Date.UTC(year, month - 1, 1));
+  const to = new Date(Date.UTC(year, month, 1));
+  const params = new URLSearchParams({
+    timeMin: from.toISOString(),
+    timeMax: to.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+  });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await r.json();
+  if (!r.ok) return res.status(502).json({ error: "Google-Kalender-Anfrage fehlgeschlagen" });
+
+  const reviewed = await pool.query(
+    "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='calendar'",
+    [req.user.id]
+  );
+  const reviewedIds = new Set(reviewed.rows.map((row) => row.source_id));
+
+  const events = (data.items || [])
+    .filter((e) => !reviewedIds.has(e.id))
+    .map((e) => ({
+      id: e.id,
+      summary: e.summary || "(Ohne Titel)",
+      start: e.start.date || e.start.dateTime,
+      end: e.end.date || e.end.dateTime,
+      allDay: !!e.start.date,
+    }));
+  res.json(events);
+});
+
+app.get("/api/import/emails", auth, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
+  const accessToken = await getValidAccessToken(req.user.id);
+  if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
+
+  const from = new Date(Date.UTC(year, month - 1, 1));
+  const to = new Date(Date.UTC(year, month, 1));
+  const fmtQ = (d) =>
+    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}`;
+  const q = `in:sent after:${fmtQ(from)} before:${fmtQ(to)}`;
+
+  const listParams = new URLSearchParams({ q, maxResults: "50" });
+  const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${listParams}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const listData = await listR.json();
+  if (!listR.ok) {
+    if (listR.status === 403)
+      return res.status(403).json({ error: "Bitte Google-Verbindung erneuern (E-Mail-Zugriff fehlt)" });
+    return res.status(502).json({ error: "Gmail-Anfrage fehlgeschlagen" });
+  }
+
+  const reviewed = await pool.query(
+    "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='email'",
+    [req.user.id]
+  );
+  const reviewedIds = new Set(reviewed.rows.map((row) => row.source_id));
+  const messageIds = (listData.messages || [])
+    .map((m) => m.id)
+    .filter((id) => !reviewedIds.has(id));
+
+  const emails = [];
+  for (const id of messageIds) {
+    const metaParams = new URLSearchParams({ format: "metadata" });
+    metaParams.append("metadataHeaders", "Subject");
+    metaParams.append("metadataHeaders", "Date");
+    const mr = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?${metaParams}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!mr.ok) continue;
+    const m = await mr.json();
+    const headers = m.payload?.headers || [];
+    const subject = headers.find((h) => h.name === "Subject")?.value || "(Kein Betreff)";
+    const dateHeader = headers.find((h) => h.name === "Date")?.value;
+    emails.push({
+      id: m.id,
+      subject,
+      snippet: m.snippet || "",
+      sentAt: dateHeader ? new Date(dateHeader).toISOString() : null,
+    });
+  }
+  res.json(emails);
+});
+
+app.post("/api/import/confirm", auth, async (req, res) => {
+  const { source_type, source_id, project_id, check_in, check_out, notes } = req.body;
+  if (!source_type || !source_id || !check_in) {
+    return res.status(400).json({ error: "source_type, source_id und check_in erforderlich" });
+  }
+  const entry = await pool.query(
+    "INSERT INTO time_entries (user_id,project_id,check_in,check_out,notes) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+    [req.user.id, project_id || null, check_in, check_out || null, notes || null]
+  );
+  await pool.query(
+    `INSERT INTO import_reviews (user_id,source_type,source_id,status,time_entry_id)
+     VALUES ($1,$2,$3,'confirmed',$4)
+     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='confirmed', time_entry_id=$4`,
+    [req.user.id, source_type, source_id, entry.rows[0].id]
+  );
+  res.json(entry.rows[0]);
+});
+
+app.post("/api/import/ignore", auth, async (req, res) => {
+  const { source_type, source_id } = req.body;
+  if (!source_type || !source_id) return res.status(400).json({ error: "source_type und source_id erforderlich" });
+  await pool.query(
+    `INSERT INTO import_reviews (user_id,source_type,source_id,status) VALUES ($1,$2,$3,'ignored')
+     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='ignored'`,
+    [req.user.id, source_type, source_id]
+  );
+  res.json({ ok: true });
 });
 
 // ── Feiertage ─────────────────────────────────────────────────────────────────
@@ -632,6 +769,7 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
 
   const entries = await pool.query(
     `SELECT te.*,
+            p.name as project_name, p.color as project_color,
             COALESCE(
               EXTRACT(EPOCH FROM (COALESCE(te.check_out,NOW()) - te.check_in))/3600, 0
             ) as gross_hours,
@@ -641,6 +779,7 @@ app.get("/api/time/month/:year/:month", auth, async (req, res) => {
               0
             ) as break_hours
      FROM time_entries te
+     LEFT JOIN projects p ON p.id = te.project_id
      WHERE te.user_id=$1
        AND EXTRACT(YEAR FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $2
        AND EXTRACT(MONTH FROM te.check_in AT TIME ZONE 'Europe/Berlin') = $3
@@ -786,6 +925,41 @@ app.get("/api/time/export/xlsx/:year/:month", auth, async (req, res) => {
   res.end();
 });
 
+// ── Projects ──────────────────────────────────────────────────────────────────
+
+app.get("/api/projects", auth, async (req, res) => {
+  const result = await pool.query(
+    "SELECT * FROM projects WHERE user_id=$1 AND active=true ORDER BY name",
+    [req.user.id]
+  );
+  res.json(result.rows);
+});
+
+app.post("/api/projects", auth, async (req, res) => {
+  const { name, color, external_id } = req.body;
+  if (!name) return res.status(400).json({ error: "Name erforderlich" });
+  const result = await pool.query(
+    "INSERT INTO projects (user_id,name,color,external_id) VALUES ($1,$2,$3,$4) RETURNING *",
+    [req.user.id, name, color || "#c08552", external_id || null]
+  );
+  res.json(result.rows[0]);
+});
+
+app.put("/api/projects/:id", auth, async (req, res) => {
+  const { name, color, external_id, active } = req.body;
+  const result = await pool.query(
+    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4 WHERE id=$5 AND user_id=$6 RETURNING *",
+    [name, color, external_id || null, active !== false, req.params.id, req.user.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(result.rows[0]);
+});
+
+app.delete("/api/projects/:id", auth, async (req, res) => {
+  await pool.query("UPDATE projects SET active=false WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+
 // ── Absences ──────────────────────────────────────────────────────────────────
 
 app.get("/api/absences/:year", auth, async (req, res) => {
@@ -858,11 +1032,11 @@ app.delete("/api/admin/users/:id", auth, adminOnly, async (req, res) => {
 // ── Time entry edit ───────────────────────────────────────────────────────────
 
 app.put("/api/time/:id", auth, async (req, res) => {
-  const { check_in, check_out, notes } = req.body;
+  const { check_in, check_out, notes, project_id } = req.body;
   const result = await pool.query(
-    `UPDATE time_entries SET check_in=$1,check_out=$2,notes=$3
-     WHERE id=$4 AND user_id=$5 RETURNING *`,
-    [check_in, check_out || null, notes || null, req.params.id, req.user.id]
+    `UPDATE time_entries SET check_in=$1,check_out=$2,notes=$3,project_id=$4
+     WHERE id=$5 AND user_id=$6 RETURNING *`,
+    [check_in, check_out || null, notes || null, project_id || null, req.params.id, req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);

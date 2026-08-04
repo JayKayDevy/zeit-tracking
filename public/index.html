@@ -735,6 +735,31 @@
       select option {
         background: #1e1e24;
       }
+      .project-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+      }
+      .project-color {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .project-name {
+        flex: 1;
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .project-ext {
+        font-size: 11px;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
@@ -907,6 +932,7 @@
       let historyMon = new Date().getMonth() + 1;
       let vacYear = new Date().getFullYear();
       let vacMon = new Date().getMonth() + 1;
+      let projects = [];
       let selectedAbsenceType = "vacation";
       const BUNDESLAENDER = [
         { code: "BW", name: "Baden-Württemberg" },
@@ -1027,6 +1053,7 @@
         }
 
         document.getElementById("userChip").textContent = me.name.split(" ")[0];
+        await loadProjects();
         await loadHome();
         checkGeofence();
         handleGoogleRedirect();
@@ -1496,6 +1523,15 @@
     <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
       <button class="btn btn-secondary btn-sm" onclick="exportExcel()">📥 Excel Export</button>
     </div>
+
+    <div class="card">
+      <div class="card-title">📥 Kalender & E-Mails importieren</div>
+      <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
+        <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEvents()">📅 Termine prüfen</button>
+        <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEmails()">✉️ E-Mails prüfen</button>
+      </div>
+      <div id="importResults"></div>
+    </div>
   `;
 
         if (!data.entries.length) {
@@ -1522,6 +1558,7 @@
           <div class="entry-date">${dayStr}</div>
           <div class="entry-times">
             <div class="t">${fmtTime(e.check_in)} – ${fmtTime(e.check_out) || "läuft"}</div>
+            ${e.project_name ? `<div class="sub"><span class="tag" style="background:${e.project_color}30;color:${e.project_color}">${e.project_name}</span></div>` : ""}
             ${breakHours > 0 ? `<div class="sub">☕ ${breakHours.toFixed(1)}h Pause</div>` : ""}
             ${e.notes ? `<div class="sub">${e.notes}</div>` : ""}
           </div>
@@ -1545,12 +1582,137 @@
         loadHistory();
       }
 
+      let importEvents = [];
+      let importEmails = [];
+      let importView = null;
+
+      async function loadImportEvents() {
+        importView = "calendar";
+        document.getElementById("importResults").innerHTML =
+          '<div class="spinner-wrap"><div class="spinner"></div></div>';
+        try {
+          importEvents = await api(
+            "GET",
+            `/import/calendar-events?year=${historyYear}&month=${historyMon}`,
+          );
+          renderImportResults();
+        } catch (e) {
+          document.getElementById("importResults").innerHTML =
+            `<div style="color:var(--red);font-size:13px">${e.message}</div>`;
+        }
+      }
+
+      async function loadImportEmails() {
+        importView = "email";
+        document.getElementById("importResults").innerHTML =
+          '<div class="spinner-wrap"><div class="spinner"></div></div>';
+        try {
+          importEmails = await api(
+            "GET",
+            `/import/emails?year=${historyYear}&month=${historyMon}`,
+          );
+          renderImportResults();
+        } catch (e) {
+          document.getElementById("importResults").innerHTML =
+            `<div style="color:var(--red);font-size:13px">${e.message}</div>`;
+        }
+      }
+
+      function renderImportResults() {
+        const el = document.getElementById("importResults");
+        const list = importView === "email" ? importEmails : importEvents;
+        if (!list.length) {
+          el.innerHTML =
+            '<div style="color:var(--muted);font-size:13px">Keine neuen Einträge gefunden</div>';
+          return;
+        }
+        el.innerHTML = list
+          .map((item) => {
+            const label = importView === "email" ? item.subject : item.summary;
+            const dateStr =
+              importView === "email"
+                ? fmtDate(item.sentAt)
+                : `${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtDate(item.end) : ""}`;
+            return `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="flex:1;font-size:14px">${dateStr} · ${label}</div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='showImportConfirmModal(${JSON.stringify(item).replace(/"/g, "&quot;")})'>Übernehmen</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreImport('${item.id}')">✕</button>
+    </div>
+  `;
+          })
+          .join("");
+      }
+
+      function showImportConfirmModal(item) {
+        const isEmail = importView === "email";
+        const checkIn = isEmail ? "" : berlinLocalInput(item.start);
+        const checkOut = isEmail ? berlinLocalInput(item.sentAt) : berlinLocalInput(item.end);
+        const notes = (isEmail ? item.subject + (item.snippet ? " – " + item.snippet : "") : item.summary) || "";
+        showModal(`
+    <div class="modal-title">Als Zeiteintrag übernehmen</div>
+    ${isEmail ? `<div style="font-size:12px;color:var(--muted)">Versendet-Zeitpunkt wird als Check-Out übernommen — Check-In bitte nach Aufwand eintragen.</div>` : ""}
+    <div class="form-group"><label>Projekt</label>
+      <select id="impProject">
+        <option value="">– Kein Projekt –</option>
+        ${projects.map((p) => `<option value="${p.id}">${p.name}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Check-In</label><input type="datetime-local" id="impIn" value="${checkIn}" /></div>
+    <div class="form-group"><label>Check-Out</label><input type="datetime-local" id="impOut" value="${checkOut}" /></div>
+    <div class="form-group"><label>Notiz</label><input type="text" id="impNote" value="${notes.replace(/"/g, "&quot;")}" /></div>
+    <button class="btn btn-primary" onclick='confirmImport(${JSON.stringify(item.id)})'>Übernehmen</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function confirmImport(id) {
+        const project_id = document.getElementById("impProject").value || null;
+        const checkInVal = document.getElementById("impIn").value;
+        const checkOutVal = document.getElementById("impOut").value;
+        if (!checkInVal) return alert("Check-In fehlt");
+        const notes = document.getElementById("impNote").value || null;
+        try {
+          await api("POST", "/import/confirm", {
+            source_type: importView,
+            source_id: id,
+            project_id,
+            check_in: new Date(checkInVal).toISOString(),
+            check_out: checkOutVal ? new Date(checkOutVal).toISOString() : null,
+            notes,
+          });
+          closeModal();
+          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
+          else importEvents = importEvents.filter((e) => e.id !== id);
+          renderImportResults();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
+      async function ignoreImport(id) {
+        try {
+          await api("POST", "/import/ignore", { source_type: importView, source_id: id });
+          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
+          else importEvents = importEvents.filter((e) => e.id !== id);
+          renderImportResults();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
       function showEntryModal(entry) {
         const breaks = entry.breaks || [];
         showModal(`
     <div class="modal-title">Eintrag bearbeiten</div>
     <div class="form-group"><label>Check-In</label><input type="datetime-local" id="editIn" value="${berlinLocalInput(entry.check_in)}" /></div>
     <div class="form-group"><label>Check-Out</label><input type="datetime-local" id="editOut" value="${berlinLocalInput(entry.check_out)}" /></div>
+    <div class="form-group"><label>Projekt</label>
+      <select id="editProject">
+        <option value="">– Kein Projekt –</option>
+        ${projects.map((p) => `<option value="${p.id}" ${p.id == entry.project_id ? "selected" : ""}>${p.name}</option>`).join("")}
+      </select>
+    </div>
     <div class="form-group"><label>Notiz</label><input type="text" id="editNote" value="${entry.notes || ""}" /></div>
     ${
       breaks.length
@@ -1579,11 +1741,13 @@
           ? new Date(document.getElementById("editOut").value).toISOString()
           : null;
         const notes = document.getElementById("editNote").value || null;
+        const project_id = document.getElementById("editProject").value || null;
         try {
           await api("PUT", `/time/${id}`, {
             check_in,
             check_out,
             notes,
+            project_id,
           });
           for (const bid of breakIds || []) {
             const startVal = document.getElementById(`editBreakStart_${bid}`).value;
@@ -1891,6 +2055,15 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
+    <div class="section-title">📁 Projekte</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="font-size:13px;color:var(--muted)">
+        Buchungsziele für Zeiteinträge, z.B. für die Kundenabrechnung.
+      </div>
+      <div id="projectsContent"></div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showAddProject()">+ Projekt anlegen</button>
+    </div>
+
     <div class="section-title">🎨 Design</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div class="form-group"><label>Akzentfarbe</label>
@@ -1914,14 +2087,16 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
-    <div class="section-title">📅 Google Kalender</div>
+    <div class="section-title">📅 Google Kalender & Gmail</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div style="font-size:13px;color:var(--muted)">
-        Verbinde deinen Google Kalender, damit Urlaub/Krank/Feiertage dort automatisch als Termine angelegt werden.
+        Verbinde Google Kalender (für Urlaub/Krank/Feiertage) und Gmail-Lesezugriff (für den Termin-/E-Mail-Import im Verlauf).
       </div>
       ${
         me.google_connected
           ? `<div style="font-size:14px;font-weight:700;color:var(--green)">✓ Verbunden</div>
+           <div style="font-size:12px;color:var(--muted)">Falls schon vor dem E-Mail-Import verbunden: einmal neu verbinden, damit der Gmail-Lesezugriff mit dazukommt.</div>
+           <button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Neu verbinden</button>
            <button class="btn btn-red btn-sm" style="width:auto" onclick="disconnectGoogle()">Trennen</button>`
           : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Mit Google verbinden</button>`
       }
@@ -1952,6 +2127,88 @@
       <button class="btn btn-red" onclick="logout()">Ausloggen</button>
     </div>
   `;
+        loadProjects().then(renderProjects);
+      }
+
+      async function loadProjects() {
+        projects = await api("GET", "/projects");
+        return projects;
+      }
+
+      function renderProjects() {
+        const el = document.getElementById("projectsContent");
+        if (!el) return;
+        if (!projects.length) {
+          el.innerHTML =
+            '<div style="color:var(--muted);font-size:13px">Noch keine Projekte angelegt</div>';
+          return;
+        }
+        el.innerHTML = projects
+          .map(
+            (p) => `
+    <div class="project-row">
+      <div class="project-color" style="background:${p.color}"></div>
+      <div style="flex:1">
+        <div class="project-name">${p.name}</div>
+        ${p.external_id ? `<div class="project-ext">Auftragsnummer: ${p.external_id}</div>` : ""}
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick='editProject(${JSON.stringify(p).replace(/"/g, "&quot;")})'>✏️</button>
+    </div>
+  `,
+          )
+          .join("");
+      }
+
+      function showAddProject() {
+        showModal(`
+    <div class="modal-title">Projekt anlegen</div>
+    <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="Projektname / Kunde" /></div>
+    <div class="form-group"><label>Farbe</label><input type="color" id="pColor" value="${DEFAULT_ACCENT}" /></div>
+    <div class="form-group"><label>Auftragsnummer (optional)</label><input type="text" id="pExtId" placeholder="z.B. AB-2026-014" /></div>
+    <button class="btn btn-primary" onclick="createProject()">Anlegen</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function createProject() {
+        const name = document.getElementById("pName").value;
+        const color = document.getElementById("pColor").value;
+        const external_id = document.getElementById("pExtId").value;
+        if (!name) return alert("Name fehlt");
+        await api("POST", "/projects", { name, color, external_id: external_id || undefined });
+        closeModal();
+        await loadProjects();
+        renderProjects();
+      }
+
+      function editProject(p) {
+        showModal(`
+    <div class="modal-title">Projekt bearbeiten</div>
+    <div class="form-group"><label>Name</label><input type="text" id="epName" value="${p.name}" /></div>
+    <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
+    <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${p.external_id || ""}" /></div>
+    <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
+    <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function updateProject(id) {
+        const name = document.getElementById("epName").value;
+        const color = document.getElementById("epColor").value;
+        const external_id = document.getElementById("epExtId").value;
+        await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
+        closeModal();
+        await loadProjects();
+        renderProjects();
+      }
+
+      async function archiveProject(id) {
+        if (!confirm("Projekt archivieren?")) return;
+        await api("DELETE", `/projects/${id}`, {});
+        closeModal();
+        await loadProjects();
+        renderProjects();
       }
 
       function collectProfileUpdate() {
