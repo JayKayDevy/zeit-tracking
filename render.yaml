@@ -16,6 +16,10 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
+      - key: SAASDO_USERNAME
+        sync: false
+      - key: SAASDO_PASSWORD
+        sync: false
 
 # zeit-tracking-db bleibt vorerst als Backup/Fallback bestehen (nicht mehr aktiv genutzt,
 # App läuft jetzt auf einer externen Neon-Postgres-DB via manuell gesetzter DATABASE_URL).

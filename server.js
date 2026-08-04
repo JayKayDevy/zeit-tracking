@@ -135,6 +135,8 @@ async function initDB() {
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS label TEXT;
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS item_date DATE;
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS saasdo_app_id INTEGER;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS saasdo_author VARCHAR(255);
     `);
     console.log("DB ready");
   } finally {
@@ -190,7 +192,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query(
-      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
+      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
       [email]
     );
     const user = result.rows[0];
@@ -207,20 +209,20 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
 });
 
 app.put("/api/auth/me", auth, async (req, res) => {
-  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius, bundesland, accent_color, tracking_start_date } = req.body;
+  const { name, daily_hours, vacation_days_per_year, office_lat, office_lng, office_radius, bundesland, accent_color, tracking_start_date, saasdo_author } = req.body;
   await pool.query(
-    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6,bundesland=$7,accent_color=$8,tracking_start_date=$9 WHERE id=$10",
-    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, accent_color || null, tracking_start_date || null, req.user.id]
+    "UPDATE users SET name=$1,daily_hours=$2,vacation_days_per_year=$3,office_lat=$4,office_lng=$5,office_radius=$6,bundesland=$7,accent_color=$8,tracking_start_date=$9,saasdo_author=$10 WHERE id=$11",
+    [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, accent_color || null, tracking_start_date || null, saasdo_author || null, req.user.id]
   );
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -600,55 +602,89 @@ app.get("/api/import/emails/:id/body", auth, async (req, res) => {
   res.json({ body: extractEmailBody(data.payload) || data.snippet || "" });
 });
 
+function normalizeSourceIds(source_ids) {
+  return [...new Set(Array.isArray(source_ids) ? source_ids.filter((x) => typeof x === "string" && x) : [])];
+}
+
 app.post("/api/import/confirm", auth, async (req, res) => {
   const {
-    source_type, source_id, project_id,
+    source_type, source_ids, project_id,
     service_date, end_time, duration_hours,
     title, description, metadata,
   } = req.body;
-  if (!source_type || !source_id || !service_date || !title || !duration_hours) {
-    return res.status(400).json({ error: "service_date, title und duration_hours erforderlich" });
+  const ids = normalizeSourceIds(source_ids);
+  if (!source_type || !ids.length || ids.length > 200 || !service_date || !title || !duration_hours) {
+    return res.status(400).json({ error: "source_ids, service_date, title und duration_hours erforderlich" });
   }
-  const entry = await pool.query(
-    `INSERT INTO billing_entries
-       (user_id,project_id,service_date,end_time,duration_hours,title,description,source_type,source_external_id,source_metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [
-      req.user.id, project_id || null, service_date,
-      end_time || null, duration_hours,
-      title, description || null, source_type, source_id,
-      metadata ? JSON.stringify(metadata) : null,
-    ]
-  );
-  await pool.query(
-    `INSERT INTO import_reviews (user_id,source_type,source_id,status,billing_entry_id,label,item_date,updated_at)
-     VALUES ($1,$2,$3,'confirmed',$4,$5,$6,NOW())
-     ON CONFLICT (user_id,source_type,source_id)
-     DO UPDATE SET status='confirmed', billing_entry_id=$4, label=$5, item_date=$6, updated_at=NOW()`,
-    [req.user.id, source_type, source_id, entry.rows[0].id, title, service_date]
-  );
-  res.json(entry.rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const entry = await client.query(
+      `INSERT INTO billing_entries
+         (user_id,project_id,service_date,end_time,duration_hours,title,description,source_type,source_external_id,source_metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [
+        req.user.id, project_id || null, service_date,
+        end_time || null, duration_hours,
+        title, description || null, source_type,
+        ids.length === 1 ? ids[0] : null,
+        metadata ? JSON.stringify(metadata) : null,
+      ]
+    );
+    const entryId = entry.rows[0].id;
+    const values = [];
+    const rows = ids.map((id, i) => {
+      values.push(req.user.id, source_type, id, entryId, title, service_date);
+      const b = i * 6;
+      return `($${b + 1},$${b + 2},$${b + 3},'confirmed',$${b + 4},$${b + 5},$${b + 6},NOW())`;
+    });
+    await client.query(
+      `INSERT INTO import_reviews (user_id,source_type,source_id,status,billing_entry_id,label,item_date,updated_at)
+       VALUES ${rows.join(",")}
+       ON CONFLICT (user_id,source_type,source_id)
+       DO UPDATE SET status='confirmed', billing_entry_id=EXCLUDED.billing_entry_id,
+                     label=EXCLUDED.label, item_date=EXCLUDED.item_date, updated_at=NOW()`,
+      values
+    );
+    await client.query("COMMIT");
+    res.json(entry.rows[0]);
+  } catch (e) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: "Übernehmen fehlgeschlagen" });
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/api/import/ignore", auth, async (req, res) => {
-  const { source_type, source_id, label, item_date } = req.body;
-  if (!source_type || !source_id) return res.status(400).json({ error: "source_type und source_id erforderlich" });
+  const { source_type, source_ids, label, item_date } = req.body;
+  const ids = normalizeSourceIds(source_ids);
+  if (!source_type || !ids.length || ids.length > 200) {
+    return res.status(400).json({ error: "source_type und source_ids erforderlich" });
+  }
+  const values = [];
+  const rows = ids.map((id, i) => {
+    values.push(req.user.id, source_type, id, label || null, item_date || null);
+    const b = i * 5;
+    return `($${b + 1},$${b + 2},$${b + 3},'ignored',$${b + 4},$${b + 5},NOW())`;
+  });
   await pool.query(
     `INSERT INTO import_reviews (user_id,source_type,source_id,status,label,item_date,updated_at)
-     VALUES ($1,$2,$3,'ignored',$4,$5,NOW())
+     VALUES ${rows.join(",")}
      ON CONFLICT (user_id,source_type,source_id)
-     DO UPDATE SET status='ignored', label=$4, item_date=$5, updated_at=NOW()`,
-    [req.user.id, source_type, source_id, label || null, item_date || null]
+     DO UPDATE SET status='ignored', label=EXCLUDED.label, item_date=EXCLUDED.item_date, updated_at=NOW()`,
+    values
   );
   res.json({ ok: true });
 });
 
 app.post("/api/import/restore", auth, async (req, res) => {
-  const { source_type, source_id } = req.body;
-  if (!source_type || !source_id) return res.status(400).json({ error: "source_type und source_id erforderlich" });
+  const { source_type, source_ids } = req.body;
+  const ids = normalizeSourceIds(source_ids);
+  if (!source_type || !ids.length) return res.status(400).json({ error: "source_type und source_ids erforderlich" });
   await pool.query(
-    "DELETE FROM import_reviews WHERE user_id=$1 AND source_type=$2 AND source_id=$3 AND status='ignored'",
-    [req.user.id, source_type, source_id]
+    "DELETE FROM import_reviews WHERE user_id=$1 AND source_type=$2 AND source_id = ANY($3::text[]) AND status='ignored'",
+    [req.user.id, source_type, ids]
   );
   res.json({ ok: true });
 });
@@ -723,13 +759,13 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Abrechnung");
   sheet.columns = [
-    { header: "Datum", key: "date", width: 12 },
+    { header: "Enddatum", key: "date", width: 12 },
     { header: "Titel", key: "title", width: 30 },
+    { header: "Kommentar", key: "desc", width: 40 },
     { header: "Projekt", key: "project", width: 24 },
     { header: "Auftragsnummer", key: "ref", width: 16 },
     { header: "Dauer (Std)", key: "hours", width: 12 },
     { header: "Quelle", key: "source", width: 12 },
-    { header: "Beschreibung", key: "desc", width: 40 },
   ];
   sheet.getRow(1).font = { bold: true };
   sheet.getColumn("date").numFmt = "dd.mm.yyyy";
@@ -757,6 +793,321 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   );
   await workbook.xlsx.write(res);
   res.end();
+});
+
+// ── saas.do: Entwicklungsaktivität ──────────────────────────────────────────
+
+const SAASDO_BASE = "https://app.dev.saas.toyota.de";
+const SAASDO_TIMEOUT_MS = 15000;
+const SAASDO_CACHE_TTL_MS = 20 * 60 * 1000;
+const SAASDO_GAP_MINUTES = 30;
+
+let saasdoCookies = {};
+let saasdoLoginPromise = null;
+const saasdoVersionsCache = new Map();
+
+function saasdoCookieHeader() {
+  return Object.entries(saasdoCookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
+
+function saasdoStoreCookies(resp) {
+  const setCookies = resp.headers.getSetCookie ? resp.headers.getSetCookie() : [];
+  for (const c of setCookies) {
+    const [pair] = c.split(";");
+    const i = pair.indexOf("=");
+    if (i < 0) continue;
+    const name = pair.slice(0, i).trim();
+    if (name === "XSRF-TOKEN" || name === "saas_session") {
+      saasdoCookies[name] = pair.slice(i + 1).trim();
+    }
+  }
+}
+
+async function saasdoFetch(path, opts = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), SAASDO_TIMEOUT_MS);
+  try {
+    return await fetch(`${SAASDO_BASE}${path}`, {
+      ...opts,
+      redirect: "manual",
+      signal: ctrl.signal,
+      headers: { ...(opts.headers || {}), Cookie: saasdoCookieHeader() },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function saasdoLogin() {
+  if (saasdoLoginPromise) return saasdoLoginPromise;
+  saasdoLoginPromise = (async () => {
+    if (!process.env.SAASDO_USERNAME || !process.env.SAASDO_PASSWORD) {
+      throw new Error("saas.do-Zugangsdaten sind nicht konfiguriert");
+    }
+    saasdoCookies = {};
+    const getResp = await saasdoFetch("/auth/login");
+    const html = await getResp.text();
+    saasdoStoreCookies(getResp);
+    const m = html.match(/name="_token" type="hidden" value="([^"]+)"/);
+    if (!m) throw new Error("saas.do Login fehlgeschlagen");
+    const body = new URLSearchParams({
+      _token: m[1],
+      email: process.env.SAASDO_USERNAME,
+      password: process.env.SAASDO_PASSWORD,
+    });
+    const postResp = await saasdoFetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    saasdoStoreCookies(postResp);
+    const location = postResp.headers.get("location") || "";
+    if (postResp.status !== 302 || location.endsWith("/auth/login")) {
+      saasdoCookies = {};
+      throw new Error("saas.do Login fehlgeschlagen");
+    }
+  })();
+  try {
+    await saasdoLoginPromise;
+  } finally {
+    saasdoLoginPromise = null;
+  }
+}
+
+async function saasdoFetchVersionsRaw(appId) {
+  const path = `/apps/show/${appId}/versions/api/versions/`;
+  let resp;
+  try {
+    resp = await saasdoFetch(path);
+  } catch (e) {
+    throw new Error("saas.do nicht erreichbar");
+  }
+  saasdoStoreCookies(resp);
+  if (resp.status === 302) {
+    await saasdoLogin();
+    try {
+      resp = await saasdoFetch(path);
+    } catch (e) {
+      throw new Error("saas.do nicht erreichbar");
+    }
+    saasdoStoreCookies(resp);
+  }
+  const contentType = resp.headers.get("content-type") || "";
+  if (resp.status !== 200 || !contentType.includes("application/json")) {
+    throw new Error(
+      resp.status === 302
+        ? "saas.do: Login fehlgeschlagen oder App nicht gefunden"
+        : `saas.do antwortete unerwartet (Status ${resp.status})`
+    );
+  }
+  return resp.json();
+}
+
+async function saasdoFetchVersions(appId) {
+  const key = String(appId);
+  const cached = saasdoVersionsCache.get(key);
+  if (cached?.data && Date.now() - cached.fetchedAt < SAASDO_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  if (cached?.inflight) return cached.inflight;
+  const inflight = saasdoFetchVersionsRaw(appId)
+    .then((data) => {
+      saasdoVersionsCache.set(key, { data, fetchedAt: Date.now() });
+      return data;
+    })
+    .catch((e) => {
+      saasdoVersionsCache.delete(key);
+      throw e;
+    });
+  saasdoVersionsCache.set(key, { ...(cached || {}), inflight });
+  return inflight;
+}
+
+// Parst "dd/MM/yyyy, HH:mm:ss" explizit (kein new Date(...) auf unbekanntes Format),
+// behandelt die Werte konsistent als Berlin-Wanduhrzeit (ausreichend für eine Schätzung).
+function parseSaasdoDate(s) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})$/.exec(s || "");
+  if (!m) return null;
+  const [, dd, mo, yyyy, hh, mi, ss] = m;
+  return Date.UTC(Number(yyyy), Number(mo) - 1, Number(dd), Number(hh), Number(mi), Number(ss));
+}
+
+function saasdoDateKey(ts) {
+  const d = new Date(ts);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function computeDayBlocks(commits, gapMinutes = SAASDO_GAP_MINUTES) {
+  const sorted = [...commits].sort((a, b) => a.ts - b.ts);
+  const blocks = [];
+  let current = [];
+  for (const c of sorted) {
+    if (current.length && c.ts - current[current.length - 1].ts > gapMinutes * 60000) {
+      blocks.push(current);
+      current = [];
+    }
+    current.push(c);
+  }
+  if (current.length) blocks.push(current);
+  return blocks.map((block) => ({
+    commits: block,
+    startTs: block[0].ts,
+    endTs: block[block.length - 1].ts,
+    durationMs: block.length > 1 ? block[block.length - 1].ts - block[0].ts : 0,
+    hasDuration: block.length > 1,
+  }));
+}
+
+const SAASDO_VERBS = [
+  "create", "update", "delete", "add", "remove", "fix", "test", "debug", "cleanup", "refactor",
+  "erstellt", "erstellen", "angepasst", "anpassen", "behoben", "gelöscht", "löschen", "hinzugefügt",
+  "entfernt", "bereinigt", "getestet", "geändert", "ändern", "überarbeitet",
+];
+const SAASDO_NOUNS = ["flux", "api", "entity", "entities", "scheduler", "component", "komponente", "page", "view", "query", "table", "field", "widget"];
+
+function summarizeSaasdoMessage(message) {
+  const firstLine = (message || "").split("\n")[0].trim();
+  if (!firstLine) return null;
+  const lower = firstLine.toLowerCase();
+  const verb = SAASDO_VERBS.find((v) => lower.includes(v));
+  const quoted = firstLine.match(/["'`]([^"'`]{2,60})["'`]/);
+  const noun = SAASDO_NOUNS.find((n) => lower.includes(n));
+  if (verb && (quoted || noun)) {
+    const subject = quoted ? quoted[1] : noun;
+    return { matched: true, verb, subject, text: firstLine };
+  }
+  return { matched: false, text: firstLine };
+}
+
+// Regelbasierte, nicht erfundene Zusammenfassung: pro Commit einzeln klassifizieren,
+// Treffer kompakt aggregieren, Rest als eindeutige Commit-Titel anhängen (Fallback ist
+// erwartbar häufig, z.B. bei deutschsprachigen oder unstrukturierten Nachrichten).
+function summarizeSaasdoCommits(commits) {
+  const seen = new Set();
+  const matched = [];
+  const fallback = [];
+  for (const c of commits) {
+    const s = summarizeSaasdoMessage(c.message);
+    if (!s || seen.has(s.text)) continue;
+    seen.add(s.text);
+    if (s.matched) matched.push(s);
+    else fallback.push(s.text);
+  }
+  const lines = [];
+  for (const s of matched) lines.push(`${s.verb} „${s.subject}": ${s.text}`);
+  for (const t of fallback) lines.push(t);
+  const CAP = 20;
+  if (lines.length > CAP) {
+    const shown = lines.slice(0, CAP);
+    shown.push(`+${lines.length - CAP} weitere`);
+    return shown.join("\n");
+  }
+  return lines.join("\n");
+}
+
+app.get("/api/import/saasdo", auth, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
+
+  const userResult = await pool.query("SELECT name, saasdo_author FROM users WHERE id=$1", [req.user.id]);
+  const author = userResult.rows[0]?.saasdo_author || userResult.rows[0]?.name;
+
+  const projResult = await pool.query(
+    "SELECT id, name, saasdo_app_id FROM projects WHERE user_id=$1 AND active=true AND saasdo_app_id IS NOT NULL ORDER BY id",
+    [req.user.id]
+  );
+  if (!projResult.rows.length) return res.json({ days: [], warnings: [] });
+
+  const appIdToProject = new Map();
+  for (const p of projResult.rows) {
+    if (!appIdToProject.has(p.saasdo_app_id)) appIdToProject.set(p.saasdo_app_id, p);
+  }
+
+  const reviewed = await pool.query(
+    "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='saasdo'",
+    [req.user.id]
+  );
+  const reviewedIds = new Set(reviewed.rows.map((r) => r.source_id));
+
+  const appIds = [...appIdToProject.keys()];
+  const results = await Promise.allSettled(appIds.map((id) => saasdoFetchVersions(id)));
+
+  const warnings = [];
+  const allCommits = [];
+  results.forEach((r, i) => {
+    const appId = appIds[i];
+    const project = appIdToProject.get(appId);
+    if (r.status === "rejected") {
+      warnings.push(`Projekt „${project.name}" (App ${appId}): ${r.reason?.message || "saas.do-Fehler"}`);
+      return;
+    }
+    const versions = r.value?.versions || [];
+    for (const v of versions) {
+      if (v.author !== author) continue;
+      const ts = parseSaasdoDate(v.date);
+      if (ts == null) continue;
+      const sourceId = `saasdo:${appId}:${v.tag}`;
+      if (reviewedIds.has(sourceId)) continue;
+      allCommits.push({
+        sourceId, appId, projectId: project.id, projectName: project.name,
+        tag: v.tag, author: v.author, message: v.message || "", ts,
+      });
+    }
+  });
+
+  if (results.every((r) => r.status === "rejected")) {
+    const timedOut = results.some((r) => r.reason?.name === "AbortError");
+    return res.status(timedOut ? 504 : 502).json({ error: "saas.do nicht erreichbar", warnings });
+  }
+
+  const y = Number(year), mo = Number(month);
+  const inMonth = allCommits.filter((c) => {
+    const d = new Date(c.ts);
+    return d.getUTCFullYear() === y && d.getUTCMonth() + 1 === mo;
+  });
+
+  const byDay = new Map();
+  for (const c of inMonth) {
+    const key = saasdoDateKey(c.ts);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(c);
+  }
+
+  const days = [...byDay.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, commits]) => {
+      const blocks = computeDayBlocks(commits);
+      const sortedCommits = [...commits].sort((a, b) => a.ts - b.ts);
+      const estimatedActivityMs = blocks.reduce((s, b) => s + b.durationMs, 0);
+      const activityWindowMs =
+        sortedCommits.length > 1 ? sortedCommits[sortedCommits.length - 1].ts - sortedCommits[0].ts : 0;
+      const apps = [...new Map(commits.map((c) => [c.appId, { appId: c.appId, projectId: c.projectId, projectName: c.projectName }])).values()];
+      return {
+        date,
+        commitCount: commits.length,
+        apps,
+        firstCommitAt: sortedCommits[0].ts,
+        lastCommitAt: sortedCommits[sortedCommits.length - 1].ts,
+        activityWindowMs,
+        estimatedActivityMs,
+        summary: summarizeSaasdoCommits(sortedCommits),
+        blocks: blocks.map((b, i) => ({
+          blockIndex: i,
+          startTs: b.startTs,
+          endTs: b.endTs,
+          durationMs: b.durationMs,
+          hasDuration: b.hasDuration,
+          commits: b.commits.map((c) => ({
+            sourceId: c.sourceId, appId: c.appId, projectId: c.projectId, projectName: c.projectName,
+            tag: c.tag, author: c.author, message: c.message, ts: c.ts,
+          })),
+        })),
+      };
+    });
+
+  res.json({ days, warnings });
 });
 
 // ── Feiertage ─────────────────────────────────────────────────────────────────
@@ -1177,21 +1528,32 @@ app.get("/api/projects", auth, async (req, res) => {
   res.json(result.rows);
 });
 
+function parseSaasdoAppId(value) {
+  if (value === undefined || value === null || value === "") return { ok: true, value: null };
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return { ok: false };
+  return { ok: true, value: n };
+}
+
 app.post("/api/projects", auth, async (req, res) => {
-  const { name, color, external_id } = req.body;
+  const { name, color, external_id, saasdo_app_id } = req.body;
   if (!name) return res.status(400).json({ error: "Name erforderlich" });
+  const appId = parseSaasdoAppId(saasdo_app_id);
+  if (!appId.ok) return res.status(400).json({ error: "saas.do App-ID muss eine positive Ganzzahl sein" });
   const result = await pool.query(
-    "INSERT INTO projects (user_id,name,color,external_id) VALUES ($1,$2,$3,$4) RETURNING *",
-    [req.user.id, name, color || "#c08552", external_id || null]
+    "INSERT INTO projects (user_id,name,color,external_id,saasdo_app_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+    [req.user.id, name, color || "#c08552", external_id || null, appId.value]
   );
   res.json(result.rows[0]);
 });
 
 app.put("/api/projects/:id", auth, async (req, res) => {
-  const { name, color, external_id, active } = req.body;
+  const { name, color, external_id, active, saasdo_app_id } = req.body;
+  const appId = parseSaasdoAppId(saasdo_app_id);
+  if (!appId.ok) return res.status(400).json({ error: "saas.do App-ID muss eine positive Ganzzahl sein" });
   const result = await pool.query(
-    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4 WHERE id=$5 AND user_id=$6 RETURNING *",
-    [name, color, external_id || null, active !== false, req.params.id, req.user.id]
+    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4,saasdo_app_id=$5 WHERE id=$6 AND user_id=$7 RETURNING *",
+    [name, color, external_id || null, active !== false, appId.value, req.params.id, req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);

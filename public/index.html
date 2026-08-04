@@ -1654,8 +1654,17 @@
       let showImportCard = true;
       let billingFilterProject = "";
       let billingFilterSource = "";
+      let saasdoDays = [];
+      let saasdoWarnings = [];
+      let saasdoLoaded = false;
+      let showSaasdoCard = true;
+      let expandedSaasdoDays = new Set();
+      let saasdoSelection = {};
+      let pendingSaasdoDate = null;
+      let pendingSaasdoMetadata = null;
+      let pendingSaasdoSourceIds = [];
 
-      const SOURCE_LABELS = { calendar: "📅 Kalender", email: "✉️ E-Mail", manual: "✏️ Manuell" };
+      const SOURCE_LABELS = { calendar: "📅 Kalender", email: "✉️ E-Mail", manual: "✏️ Manuell", saasdo: "💻 Entwicklung" };
 
       function orgMonth(dir) {
         orgMon += dir;
@@ -1711,6 +1720,11 @@
         importEvents = [];
         importEmails = [];
         importView = null;
+        saasdoDays = [];
+        saasdoWarnings = [];
+        saasdoLoaded = false;
+        expandedSaasdoDays = new Set();
+        saasdoSelection = {};
         showSpinner("organizerContent");
         try {
           billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
@@ -1742,6 +1756,19 @@
     </div>
 
     <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSaasdoCard()">
+        <div class="card-title" style="margin-bottom:0">💻 Entwicklung prüfen</div>
+        <span class="nav-icon" id="saasdoCardChevron" style="font-size:18px">${showSaasdoCard ? "expand_less" : "expand_more"}</span>
+      </div>
+      <div id="saasdoCardBody" style="margin-top:.5rem; ${showSaasdoCard ? "" : "display:none"}">
+        <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
+          <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadSaasdoActivity()">💻 Entwicklung prüfen</button>
+        </div>
+        <div id="saasdoResults"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleIgnoredList()">
         <div class="card-title" style="margin-bottom:0">🚫 Ignorierte Hinweise (<span id="ignoredCount">${ignoredItems.length}</span>)</div>
         <span class="nav-icon" id="ignoredChevron" style="font-size:18px">${showIgnored ? "expand_less" : "expand_more"}</span>
@@ -1763,11 +1790,13 @@
           <option value="">Alle Quellen</option>
           <option value="calendar" ${billingFilterSource === "calendar" ? "selected" : ""}>Kalender</option>
           <option value="email" ${billingFilterSource === "email" ? "selected" : ""}>E-Mail</option>
+          <option value="saasdo" ${billingFilterSource === "saasdo" ? "selected" : ""}>Entwicklung</option>
         </select>
       </div>
       <div id="billingListCard"></div>
     </div>
   `;
+        renderSaasdoDays();
         renderIgnoredList();
         renderBillingList();
       }
@@ -1776,6 +1805,349 @@
         showImportCard = !showImportCard;
         document.getElementById("importCardBody").style.display = showImportCard ? "block" : "none";
         document.getElementById("importCardChevron").textContent = showImportCard ? "expand_less" : "expand_more";
+      }
+
+      function toggleSaasdoCard() {
+        showSaasdoCard = !showSaasdoCard;
+        document.getElementById("saasdoCardBody").style.display = showSaasdoCard ? "block" : "none";
+        document.getElementById("saasdoCardChevron").textContent = showSaasdoCard ? "expand_less" : "expand_more";
+      }
+
+      function getSaasdoSelection(dateKey) {
+        if (!saasdoSelection[dateKey]) saasdoSelection[dateKey] = new Set();
+        return saasdoSelection[dateKey];
+      }
+
+      function formatDurationMs(ms) {
+        const totalMin = Math.round(ms / 60000);
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        return `${h}:${String(m).padStart(2, "0")} h`;
+      }
+
+      function computeSaasdoBlocksClient(commits, gapMinutes = 30) {
+        const sorted = [...commits].sort((a, b) => a.ts - b.ts);
+        const blocks = [];
+        let current = [];
+        for (const c of sorted) {
+          if (current.length && c.ts - current[current.length - 1].ts > gapMinutes * 60000) {
+            blocks.push(current);
+            current = [];
+          }
+          current.push(c);
+        }
+        if (current.length) blocks.push(current);
+        return blocks.map((commits) => ({
+          commits,
+          durationMs: commits.length > 1 ? commits[commits.length - 1].ts - commits[0].ts : 0,
+          hasDuration: commits.length > 1,
+        }));
+      }
+
+      async function loadSaasdoActivity() {
+        saasdoLoaded = true;
+        const el = document.getElementById("saasdoResults");
+        if (el) el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+        try {
+          const data = await api("GET", `/import/saasdo?year=${orgYear}&month=${orgMon}`);
+          saasdoDays = data.days || [];
+          saasdoWarnings = data.warnings || [];
+          saasdoSelection = {};
+        } catch (e) {
+          saasdoDays = [];
+          saasdoWarnings = [];
+          if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${escapeHtml(e.message)}</div>`;
+          return;
+        }
+        renderSaasdoDays();
+      }
+
+      function renderSaasdoDays() {
+        const el = document.getElementById("saasdoResults");
+        if (!el) return;
+        if (!saasdoLoaded) {
+          el.innerHTML = "";
+          return;
+        }
+        let html = "";
+        if (saasdoWarnings.length) {
+          html += saasdoWarnings
+            .map((w) => `<div style="font-size:12px;color:var(--red);margin-bottom:4px">${escapeHtml(w)}</div>`)
+            .join("");
+        }
+        if (!saasdoDays.length) {
+          html += '<div style="color:var(--muted);font-size:13px">Keine neuen Commits gefunden</div>';
+        } else {
+          html += saasdoDays.map((day) => renderSaasdoDayRow(day)).join("");
+        }
+        el.innerHTML = html;
+      }
+
+      function renderSaasdoDayRow(day) {
+        const expanded = expandedSaasdoDays.has(day.date);
+        const apps = day.apps.map((a) => escapeHtml(a.projectName)).join(", ");
+        return `
+    <div style="border-bottom:1px solid var(--border);padding:8px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSaasdoDay('${day.date}')">
+        <div style="flex:1;font-size:14px">
+          ${fmtDate(day.firstCommitAt)} · ${day.commitCount} Commit${day.commitCount !== 1 ? "s" : ""} · ${apps}
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            ${fmtTime(day.firstCommitAt)}–${fmtTime(day.lastCommitAt)} · Aktivitätsfenster: ${formatDurationMs(day.activityWindowMs)}
+            ${day.estimatedActivityMs > 0 ? ` · geschätzte Aktivitätsdauer: ${formatDurationMs(day.estimatedActivityMs)}` : ""}
+          </div>
+        </div>
+        <span class="nav-icon" style="font-size:18px">${expanded ? "expand_less" : "expand_more"}</span>
+      </div>
+      <div id="saasdoDayBody-${day.date}" style="margin-top:8px; ${expanded ? "" : "display:none"}">
+        ${expanded ? renderSaasdoDayBody(day) : ""}
+      </div>
+    </div>
+  `;
+      }
+
+      function renderSaasdoDayBody(day) {
+        const selected = getSaasdoSelection(day.date);
+        const allCount = day.blocks.reduce((s, b) => s + b.commits.length, 0);
+        return `
+    ${day.summary ? `<div style="font-size:12px;white-space:pre-wrap;background:var(--bg3);border-radius:8px;padding:8px;margin-bottom:8px">${escapeHtml(day.summary)}</div>` : ""}
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px">
+      <input type="checkbox" ${selected.size === allCount && allCount > 0 ? "checked" : ""} onchange="toggleSaasdoDayAll('${day.date}')" /> Alle auswählen
+    </label>
+    ${day.blocks.map((block, bi) => renderSaasdoBlock(day, block, bi)).join("")}
+    <div style="display:flex;gap:.5rem;margin-top:8px">
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showSaasdoConfirmModal('${day.date}')">Übernehmen (Auswahl)</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreSaasdoSelection('${day.date}')">Ignorieren (Auswahl)</button>
+    </div>
+  `;
+      }
+
+      function renderSaasdoBlock(day, block, blockIndex) {
+        const selected = getSaasdoSelection(day.date);
+        const blockSelected = block.commits.every((c) => selected.has(c.sourceId));
+        const durationText = block.hasDuration
+          ? `Geschätzter Commit-Zeitraum: ${formatDurationMs(block.durationMs)}`
+          : "einzelner Commit – keine Zeitschätzung möglich";
+        const appLabels = [...new Set(block.commits.map((c) => c.appId))].map((id) => "App " + id).join(", ");
+        return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600">
+        <input type="checkbox" ${blockSelected ? "checked" : ""} onchange="toggleSaasdoBlock('${day.date}', ${blockIndex})" />
+        ${fmtTime(block.startTs)}–${fmtTime(block.endTs)} · ${block.commits.length} Commit${block.commits.length !== 1 ? "s" : ""} · ${appLabels}
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin:2px 0 6px 22px">${durationText}</div>
+      ${block.commits.map((c, ci) => renderSaasdoCommitRow(day, c, blockIndex, ci)).join("")}
+    </div>
+  `;
+      }
+
+      function renderSaasdoCommitRow(day, commit, blockIndex, commitIndex) {
+        const selected = getSaasdoSelection(day.date);
+        const checked = selected.has(commit.sourceId);
+        return `
+    <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:4px 0 4px 22px">
+      <input type="checkbox" ${checked ? "checked" : ""} style="margin-top:2px" onchange="toggleSaasdoCommit('${day.date}', ${blockIndex}, ${commitIndex})" />
+      <span>
+        <span style="color:var(--muted)">${fmtTime(commit.ts)} · ${escapeHtml(commit.projectName)} · ${escapeHtml(commit.tag)} · ${escapeHtml(commit.author)}</span><br>
+        ${escapeHtml((commit.message || "").split("\n")[0])}
+      </span>
+    </label>
+  `;
+      }
+
+      function toggleSaasdoDay(dateKey) {
+        if (expandedSaasdoDays.has(dateKey)) expandedSaasdoDays.delete(dateKey);
+        else expandedSaasdoDays.add(dateKey);
+        renderSaasdoDays();
+      }
+
+      function toggleSaasdoCommit(dateKey, blockIndex, commitIndex) {
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const commit = day.blocks[blockIndex]?.commits[commitIndex];
+        if (!commit) return;
+        const sel = getSaasdoSelection(dateKey);
+        if (sel.has(commit.sourceId)) sel.delete(commit.sourceId);
+        else sel.add(commit.sourceId);
+        renderSaasdoDays();
+      }
+
+      function toggleSaasdoBlock(dateKey, blockIndex) {
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const block = day.blocks[blockIndex];
+        if (!block) return;
+        const sel = getSaasdoSelection(dateKey);
+        const allSelected = block.commits.every((c) => sel.has(c.sourceId));
+        for (const c of block.commits) {
+          if (allSelected) sel.delete(c.sourceId);
+          else sel.add(c.sourceId);
+        }
+        renderSaasdoDays();
+      }
+
+      function toggleSaasdoDayAll(dateKey) {
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const sel = getSaasdoSelection(dateKey);
+        const all = day.blocks.flatMap((b) => b.commits);
+        const allSelected = all.length > 0 && all.every((c) => sel.has(c.sourceId));
+        for (const c of all) {
+          if (allSelected) sel.delete(c.sourceId);
+          else sel.add(c.sourceId);
+        }
+        renderSaasdoDays();
+      }
+
+      function buildSaasdoComment(commits, blocks) {
+        const seen = new Set();
+        const lines = [];
+        for (const c of commits) {
+          const firstLine = (c.message || "").split("\n")[0].trim();
+          if (!firstLine || seen.has(firstLine)) continue;
+          seen.add(firstLine);
+          lines.push(firstLine);
+        }
+        const CAP = 20;
+        const text =
+          lines.length > CAP
+            ? lines.slice(0, CAP).join("\n") + `\n+${lines.length - CAP} weitere`
+            : lines.join("\n");
+        const estimatedMs = blocks.reduce((s, b) => s + b.durationMs, 0);
+        const hasAnyDuration = blocks.some((b) => b.hasDuration);
+        const statsLine = `${commits.length} Commits · ${blocks.length} Aktivitätsblock${blocks.length !== 1 ? "e" : ""}${hasAnyDuration ? ` · geschätzte Aktivitätsdauer: ${formatDurationMs(estimatedMs)}` : ""}`;
+        return `${text}\n\n—\n${statsLine}`;
+      }
+
+      function showSaasdoConfirmModal(dateKey) {
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const selected = getSaasdoSelection(dateKey);
+        if (!selected.size) return alert("Bitte mindestens einen Commit auswählen");
+        const commits = day.blocks
+          .flatMap((b) => b.commits)
+          .filter((c) => selected.has(c.sourceId))
+          .sort((a, b) => a.ts - b.ts);
+        const selBlocks = computeSaasdoBlocksClient(commits);
+        const estimatedMs = selBlocks.reduce((s, b) => s + b.durationMs, 0);
+        const durationHours = estimatedMs > 0 ? Math.round((estimatedMs / 3600000) * 4) / 4 : "";
+        const projectIds = [...new Set(commits.map((c) => c.projectId))];
+        const project = projects.find((p) => p.id === projectIds[0]);
+        const multiProject = projectIds.length > 1;
+        const titleDefault = multiProject
+          ? "Entwicklung – mehrere Projekte"
+          : `Entwicklung – ${project ? project.name : "Projekt"}`;
+        const endVal = berlinLocalInput(new Date(commits[commits.length - 1].ts).toISOString());
+        const comment = buildSaasdoComment(commits, selBlocks);
+
+        pendingSaasdoDate = dateKey;
+        pendingSaasdoMetadata = {
+          appIds: [...new Set(commits.map((c) => c.appId))],
+          tags: commits.map((c) => c.tag),
+          commits: commits.map((c) => ({ appId: c.appId, tag: c.tag, projectId: c.projectId })),
+        };
+        pendingSaasdoSourceIds = commits.map((c) => c.sourceId);
+
+        showModal(`
+    <div class="modal-title">Als Abrechnungsposition übernehmen</div>
+    ${multiProject ? `<div style="font-size:12px;color:var(--muted)">Auswahl umfasst mehrere Projekte – bitte Projekt manuell prüfen.</div>` : ""}
+    <div class="form-group"><label>Projekt</label>
+      <select id="sdProject">
+        <option value="">– Kein Projekt –</option>
+        ${projects.map((p) => `<option value="${p.id}" ${project && p.id === project.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="sdEnd" value="${endVal}" /></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", durationHours)}</div>
+    <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(titleDefault)}" /></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="sdDesc" rows="6" style="resize:vertical">${escapeHtml(comment)}</textarea></div>
+    <button class="btn btn-primary" onclick="confirmSaasdoImport()">Übernehmen</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function confirmSaasdoImport() {
+        const project_id = document.getElementById("sdProject").value || null;
+        const endVal = document.getElementById("sdEnd").value;
+        const duration_hours = parseFloat(document.getElementById("sdDuration").value);
+        const title = document.getElementById("sdTitle").value;
+        const description = document.getElementById("sdDesc").value || null;
+        if (!endVal || !title || !duration_hours) {
+          return alert("Enddatum, Titel und Dauer sind erforderlich");
+        }
+        try {
+          await api("POST", "/import/confirm", {
+            source_type: "saasdo",
+            source_ids: pendingSaasdoSourceIds,
+            project_id,
+            service_date: endVal.slice(0, 10),
+            end_time: new Date(endVal).toISOString(),
+            duration_hours,
+            title,
+            description,
+            metadata: pendingSaasdoMetadata,
+          });
+          closeModal();
+          removeSaasdoCommits(pendingSaasdoDate, pendingSaasdoSourceIds);
+          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+          renderBillingList();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
+      async function ignoreSaasdoSelection(dateKey) {
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const selected = getSaasdoSelection(dateKey);
+        if (!selected.size) return alert("Bitte mindestens einen Commit auswählen");
+        const ids = [...selected];
+        try {
+          await api("POST", "/import/ignore", {
+            source_type: "saasdo",
+            source_ids: ids,
+            label: `Entwicklung ${dateKey}`,
+            item_date: dateKey,
+          });
+          removeSaasdoCommits(dateKey, ids);
+          ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
+          const countEl = document.getElementById("ignoredCount");
+          if (countEl) countEl.textContent = ignoredItems.length;
+          if (showIgnored) renderIgnoredList();
+        } catch (e) {
+          alert(e.message);
+        }
+      }
+
+      function removeSaasdoCommits(dateKey, ids) {
+        const idSet = new Set(ids);
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        delete saasdoSelection[dateKey];
+        const remaining = day.blocks
+          .flatMap((b) => b.commits)
+          .filter((c) => !idSet.has(c.sourceId))
+          .sort((a, b) => a.ts - b.ts);
+        if (!remaining.length) {
+          saasdoDays = saasdoDays.filter((d) => d.date !== dateKey);
+          renderSaasdoDays();
+          return;
+        }
+        const blocks = computeSaasdoBlocksClient(remaining);
+        day.commitCount = remaining.length;
+        day.firstCommitAt = remaining[0].ts;
+        day.lastCommitAt = remaining[remaining.length - 1].ts;
+        day.activityWindowMs = remaining.length > 1 ? remaining[remaining.length - 1].ts - remaining[0].ts : 0;
+        day.estimatedActivityMs = blocks.reduce((s, b) => s + b.durationMs, 0);
+        day.apps = [...new Map(remaining.map((c) => [c.appId, { appId: c.appId, projectId: c.projectId, projectName: c.projectName }])).values()];
+        day.blocks = blocks.map((b, i) => ({
+          blockIndex: i,
+          startTs: b.commits[0].ts,
+          endTs: b.commits[b.commits.length - 1].ts,
+          durationMs: b.durationMs,
+          hasDuration: b.hasDuration,
+          commits: b.commits,
+        }));
+        renderSaasdoDays();
       }
 
       function toggleIgnoredList() {
@@ -1806,7 +2178,7 @@
       }
 
       async function restoreImportItem(sourceType, sourceId) {
-        await api("POST", "/import/restore", { source_type: sourceType, source_id: sourceId });
+        await api("POST", "/import/restore", { source_type: sourceType, source_ids: [sourceId] });
         ignoredItems = ignoredItems.filter((it) => !(it.source_type === sourceType && it.source_id === sourceId));
         document.getElementById("ignoredCount").textContent = ignoredItems.length;
         renderIgnoredList();
@@ -2118,7 +2490,7 @@
         try {
           await api("POST", "/import/confirm", {
             source_type: importView,
-            source_id: id,
+            source_ids: [id],
             project_id,
             service_date: endVal.slice(0, 10),
             end_time: new Date(endVal).toISOString(),
@@ -2148,7 +2520,7 @@
         try {
           await api("POST", "/import/ignore", {
             source_type: importView,
-            source_id: item.id,
+            source_ids: [item.id],
             label: item.title,
             item_date: itemDate,
           });
@@ -2539,6 +2911,17 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
+    <div class="section-title">💻 Entwicklung (saas.do)</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="font-size:13px;color:var(--muted)">
+        Nur Commits dieses Autors werden im Organizer unter „Entwicklung prüfen" berücksichtigt.
+      </div>
+      <div class="form-group"><label>Autor-Filter</label>
+        <input type="text" id="sSaasdoAuthor" value="${escapeHtml(me.saasdo_author || me.name)}" />
+      </div>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+    </div>
+
     <div class="section-title">📍 Büro-Standort (Geofencing)</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div style="font-size:13px;color:var(--muted)">
@@ -2618,6 +3001,7 @@
       <div style="flex:1">
         <div class="project-name">${escapeHtml(p.name)}</div>
         ${p.external_id ? `<div class="project-ext">Auftragsnummer: ${escapeHtml(p.external_id)}</div>` : ""}
+        ${p.saasdo_app_id ? `<div class="project-ext">saas.do App-ID: ${p.saasdo_app_id}</div>` : ""}
       </div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editProject(${p.id})">✏️</button>
     </div>
@@ -2632,6 +3016,7 @@
     <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="Projektname / Kunde" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="pColor" value="${DEFAULT_ACCENT}" /></div>
     <div class="form-group"><label>Auftragsnummer (optional)</label><input type="text" id="pExtId" placeholder="z.B. AB-2026-014" /></div>
+    <div class="form-group"><label>saas.do App-ID (optional)</label><input type="number" id="pAppId" min="1" step="1" placeholder="z.B. 10320" /></div>
     <button class="btn btn-primary" onclick="createProject()">Anlegen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -2641,8 +3026,13 @@
         const name = document.getElementById("pName").value;
         const color = document.getElementById("pColor").value;
         const external_id = document.getElementById("pExtId").value;
+        const saasdo_app_id = document.getElementById("pAppId").value || undefined;
         if (!name) return alert("Name fehlt");
-        await api("POST", "/projects", { name, color, external_id: external_id || undefined });
+        try {
+          await api("POST", "/projects", { name, color, external_id: external_id || undefined, saasdo_app_id });
+        } catch (e) {
+          return alert(e.message);
+        }
         closeModal();
         await loadProjects();
         renderProjects();
@@ -2656,6 +3046,7 @@
     <div class="form-group"><label>Name</label><input type="text" id="epName" value="${escapeHtml(p.name)}" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
     <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${escapeHtml(p.external_id || "")}" /></div>
+    <div class="form-group"><label>saas.do App-ID (optional)</label><input type="number" id="epAppId" min="1" step="1" value="${p.saasdo_app_id || ""}" placeholder="z.B. 10320" /></div>
     <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
     <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
@@ -2666,7 +3057,12 @@
         const name = document.getElementById("epName").value;
         const color = document.getElementById("epColor").value;
         const external_id = document.getElementById("epExtId").value;
-        await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
+        const saasdo_app_id = document.getElementById("epAppId").value || undefined;
+        try {
+          await api("PUT", `/projects/${id}`, { name, color, external_id, active: true, saasdo_app_id });
+        } catch (e) {
+          return alert(e.message);
+        }
         closeModal();
         await loadProjects();
         renderProjects();
@@ -2695,6 +3091,7 @@
           accent_color: document.getElementById("sAccent").value,
           tracking_start_date:
             document.getElementById("sTrackingStart").value || null,
+          saasdo_author: document.getElementById("sSaasdoAuthor").value || null,
         };
       }
 
