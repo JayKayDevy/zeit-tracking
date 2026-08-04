@@ -138,6 +138,26 @@
         height: 44px;
         cursor: pointer;
       }
+      .stepper-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .stepper-row input {
+        text-align: center;
+      }
+      .stepper-btn {
+        flex: none;
+        width: 44px;
+        height: 44px;
+        background: var(--bg3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 18px;
+        font-weight: 700;
+        cursor: pointer;
+      }
       .btn {
         width: 100%;
         padding: 14px;
@@ -1631,6 +1651,7 @@
       let billingEntries = [];
       let ignoredItems = [];
       let showIgnored = false;
+      let showImportCard = true;
       let billingFilterProject = "";
       let billingFilterSource = "";
 
@@ -1654,6 +1675,24 @@
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;");
+      }
+
+      function durationStepperHtml(id, value) {
+        return `
+    <div class="stepper-row">
+      <button type="button" class="stepper-btn" onclick="stepDuration('${id}', -0.25)">−</button>
+      <input type="number" id="${id}" step="0.25" min="0" value="${value}" />
+      <button type="button" class="stepper-btn" onclick="stepDuration('${id}', 0.25)">+</button>
+    </div>`;
+      }
+
+      function stepDuration(id, delta) {
+        const el = document.getElementById(id);
+        let v = parseFloat(el.value);
+        if (isNaN(v)) v = 0;
+        v = Math.round((v + delta) * 100) / 100;
+        if (v < 0) v = 0;
+        el.value = v;
       }
 
       function formatHours(h) {
@@ -1689,12 +1728,17 @@
       function renderOrganizer() {
         document.getElementById("organizerContent").innerHTML = `
     <div class="card">
-      <div class="card-title">📥 Kalender & E-Mails prüfen</div>
-      <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
-        <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEvents()">📅 Termine prüfen</button>
-        <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEmails()">✉️ E-Mails prüfen</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleImportCard()">
+        <div class="card-title" style="margin-bottom:0">📥 Kalender & E-Mails prüfen</div>
+        <span class="nav-icon" id="importCardChevron" style="font-size:18px">${showImportCard ? "expand_less" : "expand_more"}</span>
       </div>
-      <div id="importResults"></div>
+      <div id="importCardBody" style="margin-top:.5rem; ${showImportCard ? "" : "display:none"}">
+        <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
+          <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEvents()">📅 Termine prüfen</button>
+          <button class="btn btn-secondary btn-sm" style="width:auto" onclick="loadImportEmails()">✉️ E-Mails prüfen</button>
+        </div>
+        <div id="importResults"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -1726,6 +1770,12 @@
   `;
         renderIgnoredList();
         renderBillingList();
+      }
+
+      function toggleImportCard() {
+        showImportCard = !showImportCard;
+        document.getElementById("importCardBody").style.display = showImportCard ? "block" : "none";
+        document.getElementById("importCardChevron").textContent = showImportCard ? "expand_less" : "expand_more";
       }
 
       function toggleIgnoredList() {
@@ -1818,7 +1868,7 @@
       </select>
     </div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="editBillEnd" value="${endVal}" /></div>
-    <div class="form-group"><label>Dauer (Stunden)</label><input type="number" id="editBillDuration" step="0.25" min="0.25" value="${b.duration_hours || ""}" /></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("editBillDuration", b.duration_hours || "")}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
     <div class="form-group"><label>Beschreibung</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
     <button class="btn btn-primary" onclick="saveBillingEntry(${b.id})">Speichern</button>
@@ -2040,7 +2090,7 @@
       </select>
     </div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
-    <div class="form-group"><label>Dauer (Stunden)</label><input type="number" id="impDuration" step="0.25" min="0.25" value="${durationHours}" /></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
     <div class="form-group"><label>Beschreibung</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
     <button class="btn btn-primary" onclick="confirmImport('${item.id}')">Übernehmen</button>
