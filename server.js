@@ -876,6 +876,11 @@ async function saasdoLogin() {
   }
 }
 
+function saasdoLooksAuthenticated(resp) {
+  const contentType = resp.headers.get("content-type") || "";
+  return resp.status === 200 && contentType.includes("application/json");
+}
+
 async function saasdoFetchVersionsRaw(appId) {
   const path = `/apps/show/${appId}/versions/api/versions/`;
   let resp;
@@ -885,7 +890,10 @@ async function saasdoFetchVersionsRaw(appId) {
     throw new Error("saas.do nicht erreichbar");
   }
   saasdoStoreCookies(resp);
-  if (resp.status === 302) {
+  // Nicht nur 302 (Redirect auf /auth/login) gilt als "nicht eingeloggt" – ein komplett
+  // cookieloser Request (z.B. beim allerersten Aufruf nach Prozessstart) kann von saas.do
+  // auch direkt mit 401/403 statt einem Redirect beantwortet werden.
+  if (!saasdoLooksAuthenticated(resp)) {
     await saasdoLogin();
     try {
       resp = await saasdoFetch(path);
@@ -894,10 +902,9 @@ async function saasdoFetchVersionsRaw(appId) {
     }
     saasdoStoreCookies(resp);
   }
-  const contentType = resp.headers.get("content-type") || "";
-  if (resp.status !== 200 || !contentType.includes("application/json")) {
+  if (!saasdoLooksAuthenticated(resp)) {
     throw new Error(
-      resp.status === 302
+      resp.status === 302 || resp.status === 401 || resp.status === 403
         ? "saas.do: Login fehlgeschlagen oder App nicht gefunden"
         : `saas.do antwortete unerwartet (Status ${resp.status})`
     );
