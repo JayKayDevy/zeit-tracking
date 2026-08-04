@@ -1979,7 +1979,9 @@
             const dateStr =
               importView === "email"
                 ? fmtDate(item.sentAt)
-                : `${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtTime(item.end) : ""}`;
+                : item.allDay
+                  ? fmtDate(item.start)
+                  : `${fmtDate(item.start)} ${fmtTime(item.start)}${item.start !== item.end ? " – " + fmtTime(item.end) : ""}`;
             const subline =
               importView === "email"
                 ? item.to
@@ -2024,7 +2026,11 @@
             .join(", ") || "–";
         showModal(`
     <div class="modal-title">${escapeHtml(item.title)}</div>
-    <div style="font-size:13px;color:var(--muted)">${fmtDate(item.start)}${item.start !== item.end ? " – " + fmtDate(item.end) : ""}</div>
+    <div style="font-size:13px;color:var(--muted)">${
+      item.allDay
+        ? fmtDate(item.start)
+        : `${fmtDate(item.start)} ${fmtTime(item.start)}${item.start !== item.end ? " – " + fmtTime(item.end) : ""}`
+    }</div>
     <div style="font-size:13px"><strong>Organisator:</strong> ${escapeHtml(item.organizer) || "–"}</div>
     <div style="font-size:13px"><strong>Teilnehmer:</strong> ${escapeHtml(attendeesHtml)}</div>
     ${item.description ? `<div style="font-size:13px;white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(item.description)}</div>` : ""}
