@@ -99,6 +99,19 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, source_type, source_id)
       );
+
+      CREATE TABLE IF NOT EXISTS billing_items (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+        date DATE NOT NULL,
+        hours DECIMAL(5,2) NOT NULL,
+        description TEXT,
+        source_type VARCHAR(10),
+        source_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS billing_item_id INTEGER REFERENCES billing_items(id) ON DELETE SET NULL;
     `);
     console.log("DB ready");
   } finally {
@@ -425,6 +438,7 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
     .map((e) => ({
       id: e.id,
       summary: e.summary || "(Ohne Titel)",
+      description: e.description || "",
       start: e.start.date || e.start.dateTime,
       end: e.end.date || e.end.dateTime,
       allDay: !!e.start.date,
@@ -488,22 +502,54 @@ app.get("/api/import/emails", auth, async (req, res) => {
   res.json(emails);
 });
 
-app.post("/api/import/confirm", auth, async (req, res) => {
-  const { source_type, source_id, project_id, check_in, check_out, notes } = req.body;
-  if (!source_type || !source_id || !check_in) {
-    return res.status(400).json({ error: "source_type, source_id und check_in erforderlich" });
+function extractEmailBody(payload) {
+  if (!payload) return "";
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return Buffer.from(payload.body.data, "base64url").toString("utf-8");
   }
-  const entry = await pool.query(
-    "INSERT INTO time_entries (user_id,project_id,check_in,check_out,notes) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-    [req.user.id, project_id || null, check_in, check_out || null, notes || null]
+  if (payload.parts) {
+    const plain = payload.parts.find((p) => p.mimeType === "text/plain");
+    if (plain?.body?.data) return Buffer.from(plain.body.data, "base64url").toString("utf-8");
+    for (const part of payload.parts) {
+      const body = extractEmailBody(part);
+      if (body) return body;
+    }
+  }
+  if (payload.mimeType === "text/html" && payload.body?.data) {
+    const html = Buffer.from(payload.body.data, "base64url").toString("utf-8");
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  return "";
+}
+
+app.get("/api/import/emails/:id/body", auth, async (req, res) => {
+  const accessToken = await getValidAccessToken(req.user.id);
+  if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
+  const r = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${req.params.id}?format=full`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const data = await r.json();
+  if (!r.ok) return res.status(502).json({ error: "Gmail-Anfrage fehlgeschlagen" });
+  res.json({ body: extractEmailBody(data.payload) || data.snippet || "" });
+});
+
+app.post("/api/import/confirm", auth, async (req, res) => {
+  const { source_type, source_id, project_id, date, hours, description } = req.body;
+  if (!source_type || !source_id || !date || !hours) {
+    return res.status(400).json({ error: "source_type, source_id, date und hours erforderlich" });
+  }
+  const item = await pool.query(
+    "INSERT INTO billing_items (user_id,project_id,date,hours,description,source_type,source_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+    [req.user.id, project_id || null, date, hours, description || null, source_type, source_id]
   );
   await pool.query(
-    `INSERT INTO import_reviews (user_id,source_type,source_id,status,time_entry_id)
+    `INSERT INTO import_reviews (user_id,source_type,source_id,status,billing_item_id)
      VALUES ($1,$2,$3,'confirmed',$4)
-     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='confirmed', time_entry_id=$4`,
-    [req.user.id, source_type, source_id, entry.rows[0].id]
+     ON CONFLICT (user_id,source_type,source_id) DO UPDATE SET status='confirmed', billing_item_id=$4`,
+    [req.user.id, source_type, source_id, item.rows[0].id]
   );
-  res.json(entry.rows[0]);
+  res.json(item.rows[0]);
 });
 
 app.post("/api/import/ignore", auth, async (req, res) => {
@@ -515,6 +561,75 @@ app.post("/api/import/ignore", auth, async (req, res) => {
     [req.user.id, source_type, source_id]
   );
   res.json({ ok: true });
+});
+
+// ── Abrechnungspositionen ────────────────────────────────────────────────────
+
+app.get("/api/billing", auth, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year und month erforderlich" });
+  const result = await pool.query(
+    `SELECT b.*, p.name as project_name, p.color as project_color
+     FROM billing_items b
+     LEFT JOIN projects p ON p.id = b.project_id
+     WHERE b.user_id=$1
+       AND EXTRACT(YEAR FROM b.date)=$2 AND EXTRACT(MONTH FROM b.date)=$3
+     ORDER BY b.date`,
+    [req.user.id, year, month]
+  );
+  res.json(result.rows);
+});
+
+app.delete("/api/billing/:id", auth, async (req, res) => {
+  await pool.query("DELETE FROM billing_items WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+
+app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
+  const { year, month } = req.params;
+  const result = await pool.query(
+    `SELECT b.date, b.hours, b.description, p.name as project_name, p.external_id as project_ref
+     FROM billing_items b
+     LEFT JOIN projects p ON p.id = b.project_id
+     WHERE b.user_id=$1
+       AND EXTRACT(YEAR FROM b.date)=$2 AND EXTRACT(MONTH FROM b.date)=$3
+     ORDER BY b.date`,
+    [req.user.id, year, month]
+  );
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Abrechnung");
+  sheet.columns = [
+    { header: "Datum", key: "date", width: 12 },
+    { header: "Projekt", key: "project", width: 24 },
+    { header: "Auftragsnummer", key: "ref", width: 16 },
+    { header: "Stunden", key: "hours", width: 10 },
+    { header: "Beschreibung", key: "desc", width: 40 },
+  ];
+  sheet.getRow(1).font = { bold: true };
+  sheet.getColumn("date").numFmt = "dd.mm.yyyy";
+  sheet.getColumn("hours").numFmt = "0.00";
+
+  for (const r of result.rows) {
+    sheet.addRow({
+      date: new Date(r.date),
+      project: r.project_name || "",
+      ref: r.project_ref || "",
+      hours: parseFloat(r.hours),
+      desc: r.description || "",
+    });
+  }
+
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="abrechnung-${year}-${String(month).padStart(2, "0")}.xlsx"`
+  );
+  await workbook.xlsx.write(res);
+  res.end();
 });
 
 // ── Feiertage ─────────────────────────────────────────────────────────────────
