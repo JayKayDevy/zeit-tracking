@@ -2975,6 +2975,7 @@
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div style="font-size:13px;color:var(--muted)">
         Zentrale Liste der saas.do-Apps, deren Commits im Organizer geprüft werden. Keine feste Projektzuordnung – das Projekt wird erst beim Übernehmen gewählt.
+        Die Commit-Daten werden über den lokalen saas.do-Connector synchronisiert (siehe <code>connector/README.md</code>) – der Server ruft saas.do nicht direkt ab.
       </div>
       <div id="saasdoAppsContent"></div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showAddSaasdoApp()">+ App hinzufügen</button>
@@ -3050,6 +3051,18 @@
         return saasdoApps;
       }
 
+      function formatRelativeTime(iso) {
+        if (!iso) return "Noch nie synchronisiert";
+        const diffMs = Date.now() - new Date(iso).getTime();
+        const min = Math.round(diffMs / 60000);
+        if (min < 1) return "gerade eben synchronisiert";
+        if (min < 60) return `vor ${min} Minute${min !== 1 ? "n" : ""} synchronisiert`;
+        const hours = Math.round(min / 60);
+        if (hours < 24) return `vor ${hours} Stunde${hours !== 1 ? "n" : ""} synchronisiert`;
+        const days = Math.round(hours / 24);
+        return `vor ${days} Tag${days !== 1 ? "en" : ""} synchronisiert`;
+      }
+
       function renderSaasdoApps() {
         const el = document.getElementById("saasdoAppsContent");
         if (!el) return;
@@ -3063,7 +3076,7 @@
     <div class="project-row">
       <div style="flex:1">
         <div class="project-name">${escapeHtml(a.app_name)}${a.active ? "" : ' <span class="tag">inaktiv</span>'}</div>
-        <div class="project-ext">App-ID: ${a.app_id}</div>
+        <div class="project-ext">App-ID: ${a.app_id} · ${formatRelativeTime(a.synced_at)}</div>
       </div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editSaasdoApp(${a.id})">✏️</button>
     </div>

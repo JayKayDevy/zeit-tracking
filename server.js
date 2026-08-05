@@ -151,6 +151,15 @@ async function initDB() {
       );
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_selected_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
 
+      CREATE TABLE IF NOT EXISTS saasdo_synced_versions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        app_id INTEGER NOT NULL,
+        versions JSONB NOT NULL,
+        synced_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, app_id)
+      );
+
       CREATE TABLE IF NOT EXISTS schema_migrations (
         key VARCHAR(100) PRIMARY KEY,
         applied_at TIMESTAMP DEFAULT NOW()
@@ -950,63 +959,6 @@ async function saasdoLogin() {
   }
 }
 
-// TEMPORÄR: Diagnose-Endpoint für die Fehlersuche beim saas.do-Login, gibt niemals
-// Zugangsdaten oder vollständige Cookie-Werte zurück - nur Statuscodes/Strukturinfos.
-app.get("/api/saasdo-debug", auth, adminOnly, async (req, res) => {
-  const debug = {
-    envUsernameSet: !!process.env.SAASDO_USERNAME,
-    envPasswordSet: !!process.env.SAASDO_PASSWORD,
-  };
-  try {
-    const ipResp = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(5000) });
-    const ipData = await ipResp.json();
-    debug.outboundIp = ipData.ip;
-  } catch (e) {
-    debug.outboundIp = "unbekannt (" + e.message + ")";
-  }
-  if (!debug.envUsernameSet || !debug.envPasswordSet) {
-    return res.json(debug);
-  }
-  try {
-    saasdoCookies = {};
-    const getResp = await saasdoFetch("/auth/login");
-    const html = await getResp.text();
-    saasdoStoreCookies(getResp);
-    debug.getStatus = getResp.status;
-    debug.getCookiesReceived = Object.keys(saasdoCookies);
-    const m = html.match(/name="_token" type="hidden" value="([^"]+)"/);
-    debug.tokenFound = !!m;
-    if (!m) {
-      debug.htmlSnippet = html.slice(0, 800);
-      return res.json(debug);
-    }
-    const body = new URLSearchParams({
-      _token: m[1],
-      email: process.env.SAASDO_USERNAME,
-      password: process.env.SAASDO_PASSWORD,
-    });
-    const postResp = await saasdoFetch("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-    saasdoStoreCookies(postResp);
-    debug.postStatus = postResp.status;
-    debug.postLocation = postResp.headers.get("location") || null;
-    debug.postCookiesReceived = Object.keys(saasdoCookies);
-    debug.loginLooksSuccessful =
-      postResp.status === 302 && !(postResp.headers.get("location") || "").endsWith("/auth/login");
-    if (debug.loginLooksSuccessful) {
-      const verResp = await saasdoFetch("/apps/show/10320/versions/api/versions/");
-      debug.versionsStatus = verResp.status;
-      debug.versionsContentType = verResp.headers.get("content-type") || null;
-    }
-  } catch (e) {
-    debug.error = e.message;
-  }
-  res.json(debug);
-});
-
 function saasdoLooksAuthenticated(resp) {
   const contentType = resp.headers.get("content-type") || "";
   return resp.status === 200 && contentType.includes("application/json");
@@ -1168,19 +1120,22 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
   const reviewedIds = new Set(reviewed.rows.map((r) => r.source_id));
 
   const appIds = [...appIdToApp.keys()];
-  const results = await Promise.allSettled(appIds.map((id) => saasdoFetchVersions(id)));
+  const synced = await pool.query(
+    "SELECT app_id, versions, synced_at FROM saasdo_synced_versions WHERE user_id=$1 AND app_id = ANY($2::int[])",
+    [req.user.id, appIds]
+  );
+  const syncedByAppId = new Map(synced.rows.map((r) => [r.app_id, r]));
 
   const warnings = [];
   const allCommits = [];
-  results.forEach((r, i) => {
-    const appId = appIds[i];
+  for (const appId of appIds) {
     const app = appIdToApp.get(appId);
-    if (r.status === "rejected") {
-      warnings.push(`App „${app.app_name}" (${appId}): ${r.reason?.message || "saas.do-Fehler"}`);
-      return;
+    const row = syncedByAppId.get(appId);
+    if (!row) {
+      warnings.push(`App „${app.app_name}" (${appId}): noch nicht synchronisiert – bitte lokalen Connector ausführen`);
+      continue;
     }
-    const versions = r.value?.versions || [];
-    for (const v of versions) {
+    for (const v of row.versions) {
       if (v.author !== author) continue;
       const ts = parseSaasdoDate(v.date);
       if (ts == null) continue;
@@ -1191,11 +1146,10 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
         tag: v.tag, author: v.author, message: v.message || "", ts,
       });
     }
-  });
+  }
 
-  if (results.every((r) => r.status === "rejected")) {
-    const timedOut = results.some((r) => r.reason?.name === "AbortError");
-    return res.status(timedOut ? 504 : 502).json({ error: "saas.do nicht erreichbar", warnings });
+  if (!syncedByAppId.size) {
+    return res.status(200).json({ days: [], warnings });
   }
 
   const y = Number(year), mo = Number(month);
@@ -1716,7 +1670,11 @@ app.delete("/api/projects/:id", auth, async (req, res) => {
 
 app.get("/api/saasdo-apps", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT * FROM saasdo_apps WHERE user_id=$1 ORDER BY app_name",
+    `SELECT sa.*, sv.synced_at
+     FROM saasdo_apps sa
+     LEFT JOIN saasdo_synced_versions sv ON sv.user_id = sa.user_id AND sv.app_id = sa.app_id
+     WHERE sa.user_id=$1
+     ORDER BY sa.app_name`,
     [req.user.id]
   );
   res.json(result.rows);
@@ -1767,8 +1725,42 @@ app.delete("/api/saasdo-apps/:id", auth, async (req, res) => {
   if (referenced.rows.length) {
     return res.status(400).json({ error: "App wird bereits von Organizer-Daten referenziert – bitte stattdessen deaktivieren" });
   }
+  await pool.query(
+    "DELETE FROM saasdo_synced_versions WHERE user_id=$1 AND app_id=$2",
+    [req.user.id, app.rows[0].app_id]
+  );
   await pool.query("DELETE FROM saasdo_apps WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
   res.json({ ok: true });
+});
+
+// Push-Ziel für den lokalen saas.do-Connector (server-seitiger Live-Abruf wird von der
+// WAF vor app.dev.saas.toyota.de blockiert - der Connector läuft stattdessen vom
+// bereits autorisierten Rechner des Nutzers aus und reicht die Rohdaten hier durch.
+app.post("/api/saasdo/sync", auth, async (req, res) => {
+  const { results } = req.body;
+  if (!Array.isArray(results) || !results.length) {
+    return res.status(400).json({ error: "results erforderlich" });
+  }
+  const owned = await pool.query("SELECT app_id FROM saasdo_apps WHERE user_id=$1", [req.user.id]);
+  const ownedIds = new Set(owned.rows.map((r) => r.app_id));
+
+  const synced = [];
+  const skipped = [];
+  for (const entry of results) {
+    const appId = Number(entry?.app_id);
+    if (!Number.isInteger(appId) || !ownedIds.has(appId) || !Array.isArray(entry?.versions)) {
+      skipped.push(entry?.app_id);
+      continue;
+    }
+    await pool.query(
+      `INSERT INTO saasdo_synced_versions (user_id,app_id,versions,synced_at)
+       VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (user_id,app_id) DO UPDATE SET versions=EXCLUDED.versions, synced_at=NOW()`,
+      [req.user.id, appId, JSON.stringify(entry.versions)]
+    );
+    synced.push(appId);
+  }
+  res.json({ synced, skipped });
 });
 
 // ── Absences ──────────────────────────────────────────────────────────────────
