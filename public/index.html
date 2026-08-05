@@ -1013,7 +1013,11 @@
           body: body ? JSON.stringify(body) : undefined,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Fehler");
+        if (!res.ok) {
+          const err = new Error(data.error || "Fehler");
+          if (data.warnings) err.warnings = data.warnings;
+          throw err;
+        }
         return data;
       }
 
@@ -1888,7 +1892,8 @@
         } catch (e) {
           saasdoDays = [];
           saasdoWarnings = [];
-          if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${escapeHtml(e.message)}</div>`;
+          const details = (e.warnings || []).map((w) => `<div>${escapeHtml(w)}</div>`).join("");
+          if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${escapeHtml(e.message)}${details}</div>`;
           return;
         }
         renderSaasdoDays();

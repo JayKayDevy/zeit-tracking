@@ -932,6 +932,56 @@ async function saasdoLogin() {
   }
 }
 
+// TEMPORÄR: Diagnose-Endpoint für die Fehlersuche beim saas.do-Login, gibt niemals
+// Zugangsdaten oder vollständige Cookie-Werte zurück - nur Statuscodes/Strukturinfos.
+app.get("/api/saasdo-debug", auth, adminOnly, async (req, res) => {
+  const debug = {
+    envUsernameSet: !!process.env.SAASDO_USERNAME,
+    envPasswordSet: !!process.env.SAASDO_PASSWORD,
+  };
+  if (!debug.envUsernameSet || !debug.envPasswordSet) {
+    return res.json(debug);
+  }
+  try {
+    saasdoCookies = {};
+    const getResp = await saasdoFetch("/auth/login");
+    const html = await getResp.text();
+    saasdoStoreCookies(getResp);
+    debug.getStatus = getResp.status;
+    debug.getCookiesReceived = Object.keys(saasdoCookies);
+    const m = html.match(/name="_token" type="hidden" value="([^"]+)"/);
+    debug.tokenFound = !!m;
+    if (!m) {
+      debug.htmlSnippet = html.slice(0, 800);
+      return res.json(debug);
+    }
+    const body = new URLSearchParams({
+      _token: m[1],
+      email: process.env.SAASDO_USERNAME,
+      password: process.env.SAASDO_PASSWORD,
+    });
+    const postResp = await saasdoFetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    saasdoStoreCookies(postResp);
+    debug.postStatus = postResp.status;
+    debug.postLocation = postResp.headers.get("location") || null;
+    debug.postCookiesReceived = Object.keys(saasdoCookies);
+    debug.loginLooksSuccessful =
+      postResp.status === 302 && !(postResp.headers.get("location") || "").endsWith("/auth/login");
+    if (debug.loginLooksSuccessful) {
+      const verResp = await saasdoFetch("/apps/show/10320/versions/api/versions/");
+      debug.versionsStatus = verResp.status;
+      debug.versionsContentType = verResp.headers.get("content-type") || null;
+    }
+  } catch (e) {
+    debug.error = e.message;
+  }
+  res.json(debug);
+});
+
 function saasdoLooksAuthenticated(resp) {
   const contentType = resp.headers.get("content-type") || "";
   return resp.status === 200 && contentType.includes("application/json");
