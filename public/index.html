@@ -738,6 +738,16 @@
           transform: rotate(360deg);
         }
       }
+      .btn-spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        vertical-align: middle;
+      }
       .geo-banner {
         background: #2ecc7110;
         border: 1px solid #2ecc7125;
@@ -823,7 +833,7 @@
           ><input type="password" id="loginPw" placeholder="••••••••" />
         </div>
         <div class="err" id="loginErr"></div>
-        <button class="btn btn-primary" onclick="doLogin()">Einloggen</button>
+        <button class="btn btn-primary" onclick="doLogin(this)">Einloggen</button>
       </div>
 
       <div
@@ -847,7 +857,7 @@
           />
         </div>
         <div class="err" id="regErr"></div>
-        <button class="btn btn-primary" onclick="doRegister()">
+        <button class="btn btn-primary" onclick="doRegister(this)">
           Account erstellen
         </button>
       </div>
@@ -1057,6 +1067,24 @@
         URL.revokeObjectURL(url);
       }
 
+      // Zeigt erst nach 1s einen kleinen Spinner im Button (verhindert Aufblitzen bei
+      // schnellen Requests), deaktiviert den Button aber sofort gegen Doppelklicks.
+      async function withSpinner(btn, fn) {
+        if (!btn) return fn();
+        btn.disabled = true;
+        const original = btn.innerHTML;
+        const timer = setTimeout(() => {
+          btn.innerHTML = '<span class="btn-spinner"></span>';
+        }, 1000);
+        try {
+          return await fn();
+        } finally {
+          clearTimeout(timer);
+          btn.innerHTML = original;
+          btn.disabled = false;
+        }
+      }
+
       // ── Auth ────────────────────────────────────────────────────────
       function switchTab(tab) {
         document
@@ -1070,31 +1098,35 @@
           tab === "register" ? "flex" : "none";
       }
 
-      async function doLogin() {
+      async function doLogin(btn) {
         const email = document.getElementById("loginEmail").value;
         const pw = document.getElementById("loginPw").value;
         try {
-          const { token: t, user } = await api("POST", "/auth/login", {
-            email,
-            password: pw,
+          await withSpinner(btn, async () => {
+            const { token: t, user } = await api("POST", "/auth/login", {
+              email,
+              password: pw,
+            });
+            saveAuth(t, user);
           });
-          saveAuth(t, user);
         } catch (e) {
           document.getElementById("loginErr").textContent = e.message;
         }
       }
 
-      async function doRegister() {
+      async function doRegister(btn) {
         const name = document.getElementById("regName").value;
         const email = document.getElementById("regEmail").value;
         const pw = document.getElementById("regPw").value;
         try {
-          const { token: t, user } = await api("POST", "/auth/register", {
-            name,
-            email,
-            password: pw,
+          await withSpinner(btn, async () => {
+            const { token: t, user } = await api("POST", "/auth/register", {
+              name,
+              email,
+              password: pw,
+            });
+            saveAuth(t, user);
           });
-          saveAuth(t, user);
         } catch (e) {
           document.getElementById("regErr").textContent = e.message;
         }
@@ -1329,10 +1361,10 @@
       <div class="action-area">
         ${
           onBreak
-            ? `<button class="big-btn big-btn-break-end" onclick="endBreak()">☕ Pause beenden</button>`
-            : `<button class="big-btn big-btn-break" onclick="startBreak()">☕ Pause</button>`
+            ? `<button class="big-btn big-btn-break-end" onclick="endBreak(this)">☕ Pause beenden</button>`
+            : `<button class="big-btn big-btn-break" onclick="startBreak(this)">☕ Pause</button>`
         }
-        <button class="big-btn big-btn-out" onclick="doCheckout()">⏹ Check-Out</button>
+        <button class="big-btn big-btn-out" onclick="doCheckout(this)">⏹ Check-Out</button>
       </div>
 
       <div class="card">
@@ -1477,49 +1509,57 @@
     <div class="modal-title">▶ Check-In</div>
     <div class="form-group"><label>Projekt (optional)</label>${projectSelectHtml("ciProject", defaultProjectId())}</div>
     <div class="form-group"><label>Notiz (optional)</label><input type="text" id="ciNote" placeholder="z.B. Home Office" /></div>
-    <button class="btn btn-green" onclick="confirmCheckin()">Einchecken ✓</button>
+    <button class="btn btn-green" onclick="confirmCheckin(this)">Einchecken ✓</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function confirmCheckin() {
+      async function confirmCheckin(btn) {
         const notes = document.getElementById("ciNote")?.value || null;
         const project_id = document.getElementById("ciProject")?.value || undefined;
         try {
-          await api("POST", "/time/checkin", {
-            notes: notes || undefined,
-            project_id,
+          await withSpinner(btn, async () => {
+            await api("POST", "/time/checkin", {
+              notes: notes || undefined,
+              project_id,
+            });
+            if (project_id) me.last_selected_project_id = Number(project_id);
+            closeModal();
+            await loadHomeData();
           });
-          if (project_id) me.last_selected_project_id = Number(project_id);
-          closeModal();
-          await loadHomeData();
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function doCheckout() {
+      async function doCheckout(btn) {
         try {
-          await api("POST", "/time/checkout", {});
-          await loadHomeData();
+          await withSpinner(btn, async () => {
+            await api("POST", "/time/checkout", {});
+            await loadHomeData();
+          });
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function startBreak() {
+      async function startBreak(btn) {
         try {
-          await api("POST", "/time/break/start", {});
-          await loadHomeData();
+          await withSpinner(btn, async () => {
+            await api("POST", "/time/break/start", {});
+            await loadHomeData();
+          });
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function endBreak() {
+      async function endBreak(btn) {
         try {
-          await api("POST", "/time/break/end", {});
-          await loadHomeData();
+          await withSpinner(btn, async () => {
+            await api("POST", "/time/break/end", {});
+            await loadHomeData();
+          });
         } catch (e) {
           alert(e.message);
         }
@@ -1566,16 +1606,18 @@
       }
 
       // ── History ─────────────────────────────────────────────────────
-      async function exportExcel() {
+      async function exportExcel(btn) {
         try {
-          const res = await fetch(
-            `/api/time/export/xlsx/${historyYear}/${historyMon}`,
-            { headers: { Authorization: "Bearer " + token } },
-          );
-          if (!res.ok) throw new Error("Export fehlgeschlagen");
-          const blob = await res.blob();
-          const filename = `zeiten-${historyYear}-${String(historyMon).padStart(2, "0")}.xlsx`;
-          await shareOrDownloadBlob(blob, filename);
+          await withSpinner(btn, async () => {
+            const res = await fetch(
+              `/api/time/export/xlsx/${historyYear}/${historyMon}`,
+              { headers: { Authorization: "Bearer " + token } },
+            );
+            if (!res.ok) throw new Error("Export fehlgeschlagen");
+            const blob = await res.blob();
+            const filename = `zeiten-${historyYear}-${String(historyMon).padStart(2, "0")}.xlsx`;
+            await shareOrDownloadBlob(blob, filename);
+          });
         } catch (e) {
           if (e.name !== "AbortError") alert(e.message);
         }
@@ -1620,7 +1662,7 @@
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:.5rem">
-      <button class="btn btn-secondary btn-sm" onclick="exportExcel()">📥 Excel Export</button>
+      <button class="btn btn-secondary btn-sm" onclick="exportExcel(this)">📥 Excel Export</button>
     </div>
   `;
 
@@ -1839,7 +1881,7 @@
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
         <div class="card-title" style="margin-bottom:0">Abrechnungspositionen</div>
-        <button class="btn btn-secondary btn-sm" style="width:auto" id="billingExportBtn" onclick="exportBillingExcel()">📥 Export</button>
+        <button class="btn btn-secondary btn-sm" style="width:auto" id="billingExportBtn" onclick="exportBillingExcel(this)">📥 Export</button>
       </div>
       <div style="display:flex;gap:.5rem;margin-bottom:.5rem">
         <select id="billingFilterProject" onchange="applyBillingFilters()" style="flex:1">
@@ -1977,7 +2019,7 @@
     ${day.blocks.map((block, bi) => renderSaasdoBlock(day, block, bi)).join("")}
     <div style="display:flex;gap:.5rem;margin-top:8px">
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showSaasdoConfirmModal('${day.date}')">Übernehmen (Auswahl)</button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreSaasdoSelection('${day.date}')">Ignorieren (Auswahl)</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreSaasdoSelection('${day.date}', this)">Ignorieren (Auswahl)</button>
     </div>
   `;
       }
@@ -2114,12 +2156,12 @@
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(titleDefault)}" /></div>
     <div class="form-group"><label>Kommentar</label><textarea id="sdDesc" rows="6" style="resize:vertical">${escapeHtml(comment)}</textarea></div>
-    <button class="btn btn-primary" onclick="confirmSaasdoImport()">Übernehmen</button>
+    <button class="btn btn-primary" onclick="confirmSaasdoImport(this)">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function confirmSaasdoImport() {
+      async function confirmSaasdoImport(btn) {
         const project_id = document.getElementById("sdProject").value || null;
         const endVal = document.getElementById("sdEnd").value;
         const duration_hours = parseFloat(document.getElementById("sdDuration").value);
@@ -2130,45 +2172,49 @@
           return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
         try {
-          await api("POST", "/import/confirm", {
-            source_type: "saasdo",
-            source_ids: pendingSaasdoSourceIds,
-            project_id,
-            service_date: endVal.slice(0, 10),
-            end_time: new Date(endVal).toISOString(),
-            duration_hours,
-            title,
-            description,
-            metadata: pendingSaasdoMetadata,
+          await withSpinner(btn, async () => {
+            await api("POST", "/import/confirm", {
+              source_type: "saasdo",
+              source_ids: pendingSaasdoSourceIds,
+              project_id,
+              service_date: endVal.slice(0, 10),
+              end_time: new Date(endVal).toISOString(),
+              duration_hours,
+              title,
+              description,
+              metadata: pendingSaasdoMetadata,
+            });
+            if (project_id) me.last_selected_project_id = Number(project_id);
+            closeModal();
+            removeSaasdoCommits(pendingSaasdoDate, pendingSaasdoSourceIds);
+            billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+            renderBillingList();
           });
-          if (project_id) me.last_selected_project_id = Number(project_id);
-          closeModal();
-          removeSaasdoCommits(pendingSaasdoDate, pendingSaasdoSourceIds);
-          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
-          renderBillingList();
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function ignoreSaasdoSelection(dateKey) {
+      async function ignoreSaasdoSelection(dateKey, btn) {
         const day = saasdoDays.find((d) => d.date === dateKey);
         if (!day) return;
         const selected = getSaasdoSelection(dateKey);
         if (!selected.size) return alert("Bitte mindestens einen Commit auswählen");
         const ids = [...selected];
         try {
-          await api("POST", "/import/ignore", {
-            source_type: "saasdo",
-            source_ids: ids,
-            label: `Entwicklung ${dateKey}`,
-            item_date: dateKey,
+          await withSpinner(btn, async () => {
+            await api("POST", "/import/ignore", {
+              source_type: "saasdo",
+              source_ids: ids,
+              label: `Entwicklung ${dateKey}`,
+              item_date: dateKey,
+            });
+            removeSaasdoCommits(dateKey, ids);
+            ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
+            const countEl = document.getElementById("ignoredCount");
+            if (countEl) countEl.textContent = ignoredItems.length;
+            if (showIgnored) renderIgnoredList();
           });
-          removeSaasdoCommits(dateKey, ids);
-          ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
-          const countEl = document.getElementById("ignoredCount");
-          if (countEl) countEl.textContent = ignoredItems.length;
-          if (showIgnored) renderIgnoredList();
         } catch (e) {
           alert(e.message);
         }
@@ -2226,18 +2272,20 @@
         ${it.item_date ? new Date(it.item_date).toLocaleDateString("de-DE", { day: "numeric", month: "short" }) : ""} · ${escapeHtml(it.label) || "(ohne Titel)"}
         <span class="tag" style="margin-left:4px">${SOURCE_LABELS[it.source_type] || it.source_type}</span>
       </div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="restoreImportItem('${it.source_type}','${it.source_id}')">Wiederherstellen</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="restoreImportItem('${it.source_type}','${it.source_id}', this)">Wiederherstellen</button>
     </div>
   `,
           )
           .join("");
       }
 
-      async function restoreImportItem(sourceType, sourceId) {
-        await api("POST", "/import/restore", { source_type: sourceType, source_ids: [sourceId] });
-        ignoredItems = ignoredItems.filter((it) => !(it.source_type === sourceType && it.source_id === sourceId));
-        document.getElementById("ignoredCount").textContent = ignoredItems.length;
-        renderIgnoredList();
+      async function restoreImportItem(sourceType, sourceId, btn) {
+        await withSpinner(btn, async () => {
+          await api("POST", "/import/restore", { source_type: sourceType, source_ids: [sourceId] });
+          ignoredItems = ignoredItems.filter((it) => !(it.source_type === sourceType && it.source_id === sourceId));
+          document.getElementById("ignoredCount").textContent = ignoredItems.length;
+          renderIgnoredList();
+        });
       }
 
       function applyBillingFilters() {
@@ -2274,7 +2322,7 @@
       </div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showBillingDetails(${b.id})">Details</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editBillingEntry(${b.id})"><span class="nav-icon" style="font-size:18px">edit</span></button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="deleteBillingItem(${b.id})">✕</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="deleteBillingItem(${b.id}, this)">✕</button>
     </div>
   `,
             )
@@ -2315,12 +2363,12 @@
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("editBillDuration", b.duration_hours || "")}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
     <div class="form-group"><label>Kommentar</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
-    <button class="btn btn-primary" onclick="saveBillingEntry(${b.id})">Speichern</button>
+    <button class="btn btn-primary" onclick="saveBillingEntry(${b.id}, this)">Speichern</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function saveBillingEntry(id) {
+      async function saveBillingEntry(id, btn) {
         const project_id = document.getElementById("editBillProject").value || null;
         const endVal = document.getElementById("editBillEnd").value;
         const duration_hours = parseFloat(document.getElementById("editBillDuration").value);
@@ -2330,39 +2378,45 @@
           return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
         try {
-          await api("PUT", `/billing/${id}`, {
-            project_id,
-            service_date: endVal.slice(0, 10),
-            end_time: new Date(endVal).toISOString(),
-            duration_hours,
-            title,
-            description,
+          await withSpinner(btn, async () => {
+            await api("PUT", `/billing/${id}`, {
+              project_id,
+              service_date: endVal.slice(0, 10),
+              end_time: new Date(endVal).toISOString(),
+              duration_hours,
+              title,
+              description,
+            });
+            closeModal();
+            billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+            renderBillingList();
           });
-          closeModal();
-          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
-          renderBillingList();
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function deleteBillingItem(id) {
+      async function deleteBillingItem(id, btn) {
         if (!confirm("Abrechnungsposition löschen?")) return;
-        await api("DELETE", `/billing/${id}`, {});
-        billingEntries = billingEntries.filter((b) => b.id !== id);
-        renderBillingList();
+        await withSpinner(btn, async () => {
+          await api("DELETE", `/billing/${id}`, {});
+          billingEntries = billingEntries.filter((b) => b.id !== id);
+          renderBillingList();
+        });
       }
 
-      async function exportBillingExcel() {
+      async function exportBillingExcel(btn) {
         try {
-          const res = await fetch(
-            `/api/billing/export/xlsx/${orgYear}/${orgMon}`,
-            { headers: { Authorization: "Bearer " + token } },
-          );
-          if (!res.ok) throw new Error("Export fehlgeschlagen");
-          const blob = await res.blob();
-          const filename = `abrechnung-${orgYear}-${String(orgMon).padStart(2, "0")}.xlsx`;
-          await shareOrDownloadBlob(blob, filename);
+          await withSpinner(btn, async () => {
+            const res = await fetch(
+              `/api/billing/export/xlsx/${orgYear}/${orgMon}`,
+              { headers: { Authorization: "Bearer " + token } },
+            );
+            if (!res.ok) throw new Error("Export fehlgeschlagen");
+            const blob = await res.blob();
+            const filename = `abrechnung-${orgYear}-${String(orgMon).padStart(2, "0")}.xlsx`;
+            await shareOrDownloadBlob(blob, filename);
+          });
         } catch (e) {
           if (e.name !== "AbortError") alert(e.message);
         }
@@ -2435,7 +2489,7 @@
       </div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showItemDetails('${item.id}')">Details</button>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showImportConfirmModal('${item.id}')">Übernehmen</button>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreImportItem('${item.id}')">✕</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="ignoreImportItem('${item.id}', this)">✕</button>
     </div>
   `;
           })
@@ -2534,13 +2588,13 @@
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
     <div class="form-group"><label>Kommentar</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
-    <button class="btn btn-primary" onclick="confirmImport('${item.id}')">Übernehmen</button>
+    <button class="btn btn-primary" onclick="confirmImport('${item.id}', this)">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
         pendingImportMetadata = metadata;
       }
 
-      async function confirmImport(id) {
+      async function confirmImport(id, btn) {
         const metadata = pendingImportMetadata;
         const project_id = document.getElementById("impProject").value || null;
         const endVal = document.getElementById("impEnd").value;
@@ -2552,30 +2606,32 @@
           return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
         try {
-          await api("POST", "/import/confirm", {
-            source_type: importView,
-            source_ids: [id],
-            project_id,
-            service_date: endVal.slice(0, 10),
-            end_time: new Date(endVal).toISOString(),
-            duration_hours,
-            title,
-            description,
-            metadata,
+          await withSpinner(btn, async () => {
+            await api("POST", "/import/confirm", {
+              source_type: importView,
+              source_ids: [id],
+              project_id,
+              service_date: endVal.slice(0, 10),
+              end_time: new Date(endVal).toISOString(),
+              duration_hours,
+              title,
+              description,
+              metadata,
+            });
+            if (project_id) me.last_selected_project_id = Number(project_id);
+            closeModal();
+            if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
+            else importEvents = importEvents.filter((e) => e.id !== id);
+            renderImportResults();
+            billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
+            renderBillingList();
           });
-          if (project_id) me.last_selected_project_id = Number(project_id);
-          closeModal();
-          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
-          else importEvents = importEvents.filter((e) => e.id !== id);
-          renderImportResults();
-          billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
-          renderBillingList();
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function ignoreImportItem(id) {
+      async function ignoreImportItem(id, btn) {
         const item = findImportItem(id);
         if (!item) return;
         const itemDate =
@@ -2583,19 +2639,21 @@
             ? berlinLocalInput(item.sentAt).slice(0, 10)
             : berlinLocalInput(item.start).slice(0, 10);
         try {
-          await api("POST", "/import/ignore", {
-            source_type: importView,
-            source_ids: [item.id],
-            label: item.title,
-            item_date: itemDate,
+          await withSpinner(btn, async () => {
+            await api("POST", "/import/ignore", {
+              source_type: importView,
+              source_ids: [item.id],
+              label: item.title,
+              item_date: itemDate,
+            });
+            if (importView === "email") importEmails = importEmails.filter((e) => e.id !== item.id);
+            else importEvents = importEvents.filter((e) => e.id !== item.id);
+            renderImportResults();
+            ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
+            const countEl = document.getElementById("ignoredCount");
+            if (countEl) countEl.textContent = ignoredItems.length;
+            if (showIgnored) renderIgnoredList();
           });
-          if (importView === "email") importEmails = importEmails.filter((e) => e.id !== item.id);
-          else importEvents = importEvents.filter((e) => e.id !== item.id);
-          renderImportResults();
-          ignoredItems = await api("GET", `/import/ignored?year=${orgYear}&month=${orgMon}`);
-          const countEl = document.getElementById("ignoredCount");
-          if (countEl) countEl.textContent = ignoredItems.length;
-          if (showIgnored) renderIgnoredList();
         } catch (e) {
           alert(e.message);
         }
@@ -2629,13 +2687,13 @@
             .join("")
         : ""
     }
-    <button class="btn btn-primary" onclick="saveEntry(${entry.id}, ${JSON.stringify(breaks.map((b) => b.id))})">Speichern</button>
-    <button class="btn btn-red btn-sm" onclick="deleteEntry(${entry.id})">Eintrag löschen</button>
+    <button class="btn btn-primary" onclick="saveEntry(${entry.id}, ${JSON.stringify(breaks.map((b) => b.id))}, this)">Speichern</button>
+    <button class="btn btn-red btn-sm" onclick="deleteEntry(${entry.id}, this)">Eintrag löschen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function saveEntry(id, breakIds) {
+      async function saveEntry(id, breakIds, btn) {
         const check_in = new Date(
           document.getElementById("editIn").value,
         ).toISOString();
@@ -2645,32 +2703,36 @@
         const notes = document.getElementById("editNote").value || null;
         const project_id = document.getElementById("editProject").value || null;
         try {
-          await api("PUT", `/time/${id}`, {
-            check_in,
-            check_out,
-            notes,
-            project_id,
-          });
-          for (const bid of breakIds || []) {
-            const startVal = document.getElementById(`editBreakStart_${bid}`).value;
-            const endVal = document.getElementById(`editBreakEnd_${bid}`).value;
-            await api("PUT", `/breaks/${bid}`, {
-              start_time: new Date(startVal).toISOString(),
-              end_time: endVal ? new Date(endVal).toISOString() : null,
+          await withSpinner(btn, async () => {
+            await api("PUT", `/time/${id}`, {
+              check_in,
+              check_out,
+              notes,
+              project_id,
             });
-          }
-          closeModal();
-          loadHistory();
+            for (const bid of breakIds || []) {
+              const startVal = document.getElementById(`editBreakStart_${bid}`).value;
+              const endVal = document.getElementById(`editBreakEnd_${bid}`).value;
+              await api("PUT", `/breaks/${bid}`, {
+                start_time: new Date(startVal).toISOString(),
+                end_time: endVal ? new Date(endVal).toISOString() : null,
+              });
+            }
+            closeModal();
+            loadHistory();
+          });
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function deleteEntry(id) {
+      async function deleteEntry(id, btn) {
         if (!confirm("Eintrag wirklich löschen?")) return;
-        await api("DELETE", `/time/${id}`, {});
-        closeModal();
-        loadHistory();
+        await withSpinner(btn, async () => {
+          await api("DELETE", `/time/${id}`, {});
+          closeModal();
+          loadHistory();
+        });
       }
 
       // ── Vacation ────────────────────────────────────────────────────
@@ -2809,7 +2871,7 @@
             return `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <div style="flex:1;font-size:14px">${dateLabel} · ${label}</div>
-          <button class="btn btn-secondary btn-sm" onclick='deleteAbsenceGroup(${JSON.stringify(g.ids)})'>✕</button>
+          <button class="btn btn-secondary btn-sm" onclick='deleteAbsenceGroup(${JSON.stringify(g.ids)}, this)'>✕</button>
         </div>
       `;
           })
@@ -2821,7 +2883,7 @@
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
         <div class="card-title" style="margin-bottom:0">📅 Kalendertermine</div>
-        ${googleEvents.length ? `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="applyAllGoogleEvents()">Alle übernehmen</button>` : ""}
+        ${googleEvents.length ? `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="applyAllGoogleEvents(this)">Alle übernehmen</button>` : ""}
       </div>
       ${
         googleEvents.length
@@ -2830,7 +2892,7 @@
                 (e) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <div style="flex:1;font-size:14px">${fmtDate(e.start)} · ${escapeHtml(e.summary)}</div>
-          <button class="btn btn-secondary btn-sm" onclick="applyGoogleEvent('${e.id}')">Übernehmen</button>
+          <button class="btn btn-secondary btn-sm" onclick="applyGoogleEvent('${e.id}', this)">Übernehmen</button>
         </div>
       `,
               )
@@ -2856,28 +2918,10 @@
         return dates;
       }
 
-      async function applyGoogleEvent(id) {
+      async function applyGoogleEvent(id, btn) {
         const e = googleEvents.find((x) => x.id === id);
         if (!e) return;
-        for (const date of datesForGoogleEvent(e)) {
-          await api("POST", "/absences", {
-            date,
-            type: selectedAbsenceType,
-            notes: e.summary,
-          });
-        }
-        vacData = await api("GET", `/absences/${vacYear}`);
-        renderVacation();
-      }
-
-      async function applyAllGoogleEvents() {
-        if (
-          !confirm(
-            `${googleEvents.length} Termin(e) als Abwesenheit übernehmen?`,
-          )
-        )
-          return;
-        for (const e of googleEvents) {
+        await withSpinner(btn, async () => {
           for (const date of datesForGoogleEvent(e)) {
             await api("POST", "/absences", {
               date,
@@ -2885,9 +2929,31 @@
               notes: e.summary,
             });
           }
-        }
-        vacData = await api("GET", `/absences/${vacYear}`);
-        renderVacation();
+          vacData = await api("GET", `/absences/${vacYear}`);
+          renderVacation();
+        });
+      }
+
+      async function applyAllGoogleEvents(btn) {
+        if (
+          !confirm(
+            `${googleEvents.length} Termin(e) als Abwesenheit übernehmen?`,
+          )
+        )
+          return;
+        await withSpinner(btn, async () => {
+          for (const e of googleEvents) {
+            for (const date of datesForGoogleEvent(e)) {
+              await api("POST", "/absences", {
+                date,
+                type: selectedAbsenceType,
+                notes: e.summary,
+              });
+            }
+          }
+          vacData = await api("GET", `/absences/${vacYear}`);
+          renderVacation();
+        });
       }
 
       function selectAbsenceType(type) {
@@ -2933,13 +2999,15 @@
         return groups;
       }
 
-      async function deleteAbsenceGroup(ids) {
+      async function deleteAbsenceGroup(ids, btn) {
         if (ids.length > 1 && !confirm(`${ids.length} Tage wirklich löschen?`)) return;
-        for (const id of ids) {
-          await api("DELETE", `/absences/${id}`, {});
-        }
-        vacData = await api("GET", `/absences/${vacYear}`);
-        renderVacation();
+        await withSpinner(btn, async () => {
+          for (const id of ids) {
+            await api("DELETE", `/absences/${id}`, {});
+          }
+          vacData = await api("GET", `/absences/${vacYear}`);
+          renderVacation();
+        });
       }
 
       // ── Settings ─────────────────────────────────────────────────────
@@ -2956,7 +3024,7 @@
       <div style="font-size:12px;color:var(--muted)">
         Ab diesem Datum zählt das Monats-Dashboard erst die Soll-Stunden. Leer lassen = ab Account-Erstellung.
       </div>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile(this)">Speichern</button>
     </div>
 
     <div class="section-title">📁 Projekte</div>
@@ -2973,7 +3041,7 @@
       <div class="form-group"><label>Akzentfarbe</label>
         <input type="color" id="sAccent" value="${me.accent_color || DEFAULT_ACCENT}" oninput="applyAccentColor(this.value)" />
       </div>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile(this)">Speichern</button>
     </div>
 
     <div class="section-title">💻 Entwicklung (saas.do)</div>
@@ -2984,7 +3052,7 @@
       <div class="form-group"><label>Autor-Filter</label>
         <input type="text" id="sSaasdoAuthor" value="${escapeHtml(me.saasdo_author || me.name)}" />
       </div>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile(this)">Speichern</button>
     </div>
 
     <div class="section-title">💻 saas.do Apps</div>
@@ -3003,13 +3071,13 @@
         Trage deinen Büro-Standort ein, dann fragt die App beim Öffnen automatisch ob du einchecken möchtest.
       </div>
       <div class="form-group"><label>Adresse</label><input type="text" id="sAddress" placeholder="Musterstraße 1, 12345 Musterstadt" /></div>
-      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="geocodeAddress()">🔍 Adresse suchen</button>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="geocodeAddress(this)">🔍 Adresse suchen</button>
       <div id="geocodeResult" style="font-size:12px;color:var(--muted)"></div>
       <div class="form-group"><label>Breitengrad</label><input type="number" id="sLat" value="${me.office_lat || ""}" step="0.0000001" placeholder="48.137154" /></div>
       <div class="form-group"><label>Längengrad</label><input type="number" id="sLng" value="${me.office_lng || ""}" step="0.0000001" placeholder="11.576124" /></div>
       <div class="form-group"><label>Radius (Meter)</label><input type="number" id="sRadius" value="${me.office_radius || 200}" min="50" max="1000" /></div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="useCurrentLocation()">📍 Aktuellen Standort verwenden</button>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile(this)">Speichern</button>
     </div>
 
     <div class="section-title">📅 Google Kalender & Gmail</div>
@@ -3021,9 +3089,9 @@
         me.google_connected
           ? `<div style="font-size:14px;font-weight:700;color:var(--green)">✓ Verbunden</div>
            <div style="font-size:12px;color:var(--muted)">Falls schon vor dem E-Mail-Import verbunden: einmal neu verbinden, damit der Gmail-Lesezugriff mit dazukommt.</div>
-           <button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Neu verbinden</button>
-           <button class="btn btn-red btn-sm" style="width:auto" onclick="disconnectGoogle()">Trennen</button>`
-          : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle()">Mit Google verbinden</button>`
+           <button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle(this)">Neu verbinden</button>
+           <button class="btn btn-red btn-sm" style="width:auto" onclick="disconnectGoogle(this)">Trennen</button>`
+          : `<button class="btn btn-secondary btn-sm" style="width:auto" onclick="connectGoogle(this)">Mit Google verbinden</button>`
       }
     </div>
 
@@ -3045,7 +3113,7 @@
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div class="form-group"><label>Aktuelles Passwort</label><input type="password" id="sPwCur" /></div>
       <div class="form-group"><label>Neues Passwort</label><input type="password" id="sPwNew" /></div>
-      <button class="btn btn-primary btn-sm" style="width:auto" onclick="changePassword()">Passwort ändern</button>
+      <button class="btn btn-primary btn-sm" style="width:auto" onclick="changePassword(this)">Passwort ändern</button>
     </div>
 
     <div style="margin-top:1.5rem">
@@ -3107,24 +3175,26 @@
     <div class="form-group"><label>App-ID</label><input type="number" id="saAppId" min="1" step="1" placeholder="z.B. 10320" /></div>
     <div class="form-group"><label>App-Name</label><input type="text" id="saAppName" placeholder="frei wählbar" /></div>
     <div class="form-group"><label>Notiz (optional)</label><input type="text" id="saNote" /></div>
-    <button class="btn btn-primary" onclick="createSaasdoApp()">Anlegen</button>
+    <button class="btn btn-primary" onclick="createSaasdoApp(this)">Anlegen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function createSaasdoApp() {
+      async function createSaasdoApp(btn) {
         const app_id = document.getElementById("saAppId").value;
         const app_name = document.getElementById("saAppName").value;
         const note = document.getElementById("saNote").value;
         if (!app_id || !app_name) return alert("App-ID und App-Name sind erforderlich");
         try {
-          await api("POST", "/saasdo-apps", { app_id, app_name, note: note || undefined });
+          await withSpinner(btn, async () => {
+            await api("POST", "/saasdo-apps", { app_id, app_name, note: note || undefined });
+            closeModal();
+            await loadSaasdoApps();
+            renderSaasdoApps();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadSaasdoApps();
-        renderSaasdoApps();
       }
 
       function editSaasdoApp(id) {
@@ -3135,52 +3205,58 @@
     <div class="form-group"><label>App-ID</label><input type="text" value="${a.app_id}" disabled /></div>
     <div class="form-group"><label>App-Name</label><input type="text" id="saeAppName" value="${escapeHtml(a.app_name)}" /></div>
     <div class="form-group"><label>Notiz (optional)</label><input type="text" id="saeNote" value="${escapeHtml(a.note || "")}" /></div>
-    <button class="btn btn-primary" onclick="updateSaasdoApp(${a.id})">Speichern</button>
-    <button class="btn btn-secondary btn-sm" onclick="toggleSaasdoAppActive(${a.id})">${a.active ? "Deaktivieren" : "Aktivieren"}</button>
-    <button class="btn btn-red btn-sm" onclick="deleteSaasdoApp(${a.id})">Löschen</button>
+    <button class="btn btn-primary" onclick="updateSaasdoApp(${a.id}, this)">Speichern</button>
+    <button class="btn btn-secondary btn-sm" onclick="toggleSaasdoAppActive(${a.id}, this)">${a.active ? "Deaktivieren" : "Aktivieren"}</button>
+    <button class="btn btn-red btn-sm" onclick="deleteSaasdoApp(${a.id}, this)">Löschen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function updateSaasdoApp(id) {
+      async function updateSaasdoApp(id, btn) {
         const a = saasdoApps.find((x) => x.id === id);
         if (!a) return;
         const app_name = document.getElementById("saeAppName").value;
         const note = document.getElementById("saeNote").value;
         if (!app_name) return alert("App-Name ist erforderlich");
         try {
-          await api("PUT", `/saasdo-apps/${id}`, { app_name, note: note || undefined, active: a.active });
+          await withSpinner(btn, async () => {
+            await api("PUT", `/saasdo-apps/${id}`, { app_name, note: note || undefined, active: a.active });
+            closeModal();
+            await loadSaasdoApps();
+            renderSaasdoApps();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadSaasdoApps();
-        renderSaasdoApps();
       }
 
-      async function toggleSaasdoAppActive(id) {
+      async function toggleSaasdoAppActive(id, btn) {
         const a = saasdoApps.find((x) => x.id === id);
         if (!a) return;
         try {
-          await api("PUT", `/saasdo-apps/${id}`, { app_name: a.app_name, note: a.note, active: !a.active });
+          await withSpinner(btn, async () => {
+            await api("PUT", `/saasdo-apps/${id}`, { app_name: a.app_name, note: a.note, active: !a.active });
+            closeModal();
+            await loadSaasdoApps();
+            renderSaasdoApps();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadSaasdoApps();
-        renderSaasdoApps();
       }
 
-      async function deleteSaasdoApp(id) {
+      async function deleteSaasdoApp(id, btn) {
         if (!confirm("App wirklich löschen?")) return;
         try {
-          await api("DELETE", `/saasdo-apps/${id}`, {});
+          await withSpinner(btn, async () => {
+            await api("DELETE", `/saasdo-apps/${id}`, {});
+            closeModal();
+            await loadSaasdoApps();
+            renderSaasdoApps();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadSaasdoApps();
-        renderSaasdoApps();
       }
 
       function renderProjects() {
@@ -3213,24 +3289,26 @@
     <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="Projektname / Kunde" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="pColor" value="${DEFAULT_ACCENT}" /></div>
     <div class="form-group"><label>Auftragsnummer (optional)</label><input type="text" id="pExtId" placeholder="z.B. AB-2026-014" /></div>
-    <button class="btn btn-primary" onclick="createProject()">Anlegen</button>
+    <button class="btn btn-primary" onclick="createProject(this)">Anlegen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function createProject() {
+      async function createProject(btn) {
         const name = document.getElementById("pName").value;
         const color = document.getElementById("pColor").value;
         const external_id = document.getElementById("pExtId").value;
         if (!name) return alert("Name fehlt");
         try {
-          await api("POST", "/projects", { name, color, external_id: external_id || undefined });
+          await withSpinner(btn, async () => {
+            await api("POST", "/projects", { name, color, external_id: external_id || undefined });
+            closeModal();
+            await loadProjects();
+            renderProjects();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadProjects();
-        renderProjects();
       }
 
       function editProject(id) {
@@ -3241,32 +3319,36 @@
     <div class="form-group"><label>Name</label><input type="text" id="epName" value="${escapeHtml(p.name)}" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
     <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${escapeHtml(p.external_id || "")}" /></div>
-    <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
-    <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
+    <button class="btn btn-primary" onclick="updateProject(${p.id}, this)">Speichern</button>
+    <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id}, this)">Archivieren</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function updateProject(id) {
+      async function updateProject(id, btn) {
         const name = document.getElementById("epName").value;
         const color = document.getElementById("epColor").value;
         const external_id = document.getElementById("epExtId").value;
         try {
-          await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
+          await withSpinner(btn, async () => {
+            await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
+            closeModal();
+            await loadProjects();
+            renderProjects();
+          });
         } catch (e) {
-          return alert(e.message);
+          alert(e.message);
         }
-        closeModal();
-        await loadProjects();
-        renderProjects();
       }
 
-      async function archiveProject(id) {
+      async function archiveProject(id, btn) {
         if (!confirm("Projekt archivieren?")) return;
-        await api("DELETE", `/projects/${id}`, {});
-        closeModal();
-        await loadProjects();
-        renderProjects();
+        await withSpinner(btn, async () => {
+          await api("DELETE", `/projects/${id}`, {});
+          closeModal();
+          await loadProjects();
+          renderProjects();
+        });
       }
 
       function collectProfileUpdate() {
@@ -3288,12 +3370,14 @@
         };
       }
 
-      async function saveProfile() {
+      async function saveProfile(btn) {
         try {
-          me = await api("PUT", "/auth/me", collectProfileUpdate());
-          localStorage.setItem("zt_user", JSON.stringify(me));
-          document.getElementById("userChip").textContent =
-            me.name.split(" ")[0];
+          await withSpinner(btn, async () => {
+            me = await api("PUT", "/auth/me", collectProfileUpdate());
+            localStorage.setItem("zt_user", JSON.stringify(me));
+            document.getElementById("userChip").textContent =
+              me.name.split(" ")[0];
+          });
           alert("Gespeichert ✓");
         } catch (e) {
           alert(e.message);
@@ -3301,57 +3385,58 @@
       }
 
       async function generateHolidays(btn) {
-        const originalLabel = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML =
-          '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0 auto"></div>';
         try {
-          me = await api("PUT", "/auth/me", collectProfileUpdate());
-          localStorage.setItem("zt_user", JSON.stringify(me));
-          const { count } = await api("POST", "/holidays/generate", {});
-          alert(`${count} Feiertage angelegt ✓`);
+          await withSpinner(btn, async () => {
+            me = await api("PUT", "/auth/me", collectProfileUpdate());
+            localStorage.setItem("zt_user", JSON.stringify(me));
+            const { count } = await api("POST", "/holidays/generate", {});
+            alert(`${count} Feiertage angelegt ✓`);
+          });
         } catch (e) {
           alert(e.message);
-        } finally {
-          btn.disabled = false;
-          btn.innerHTML = originalLabel;
         }
       }
 
-      async function geocodeAddress() {
+      async function geocodeAddress(btn) {
         const address = document.getElementById("sAddress").value.trim();
         const resultEl = document.getElementById("geocodeResult");
         if (!address) return alert("Bitte Adresse eingeben");
         resultEl.textContent = "Suche...";
         try {
-          const { lat, lng, display_name } = await api(
-            "GET",
-            `/geocode?q=${encodeURIComponent(address)}`,
-          );
-          document.getElementById("sLat").value = lat.toFixed(7);
-          document.getElementById("sLng").value = lng.toFixed(7);
-          resultEl.textContent = "✓ " + display_name;
+          await withSpinner(btn, async () => {
+            const { lat, lng, display_name } = await api(
+              "GET",
+              `/geocode?q=${encodeURIComponent(address)}`,
+            );
+            document.getElementById("sLat").value = lat.toFixed(7);
+            document.getElementById("sLng").value = lng.toFixed(7);
+            resultEl.textContent = "✓ " + display_name;
+          });
         } catch (e) {
           resultEl.textContent = "";
           alert(e.message);
         }
       }
 
-      async function connectGoogle() {
+      async function connectGoogle(btn) {
         try {
-          const { url } = await api("GET", "/google/connect");
-          window.location.href = url;
+          await withSpinner(btn, async () => {
+            const { url } = await api("GET", "/google/connect");
+            window.location.href = url;
+          });
         } catch (e) {
           alert(e.message);
         }
       }
 
-      async function disconnectGoogle() {
+      async function disconnectGoogle(btn) {
         if (!confirm("Google Kalender trennen?")) return;
-        await api("POST", "/google/disconnect", {});
-        me.google_connected = false;
-        localStorage.setItem("zt_user", JSON.stringify(me));
-        renderSettings();
+        await withSpinner(btn, async () => {
+          await api("POST", "/google/disconnect", {});
+          me.google_connected = false;
+          localStorage.setItem("zt_user", JSON.stringify(me));
+          renderSettings();
+        });
       }
 
       function useCurrentLocation() {
@@ -3367,17 +3452,19 @@
         );
       }
 
-      async function changePassword() {
+      async function changePassword(btn) {
         const current_password = document.getElementById("sPwCur").value;
         const new_password = document.getElementById("sPwNew").value;
         try {
-          await api("PUT", "/auth/password", {
-            current_password,
-            new_password,
+          await withSpinner(btn, async () => {
+            await api("PUT", "/auth/password", {
+              current_password,
+              new_password,
+            });
+            document.getElementById("sPwCur").value = "";
+            document.getElementById("sPwNew").value = "";
           });
           alert("Passwort geändert ✓");
-          document.getElementById("sPwCur").value = "";
-          document.getElementById("sPwNew").value = "";
         } catch (e) {
           alert(e.message);
         }
@@ -3423,13 +3510,13 @@
     </div>
     <div class="form-group"><label>Sollstunden/Tag</label><input type="number" id="auHours" value="${u.daily_hours}" step="0.5" /></div>
     <div class="form-group"><label>Urlaubstage/Jahr</label><input type="number" id="auVac" value="${u.vacation_days_per_year}" /></div>
-    <button class="btn btn-primary" onclick="updateUser(${u.id})">Speichern</button>
-    ${u.id !== me.id ? `<button class="btn btn-red btn-sm" onclick="deleteUser(${u.id})">Benutzer löschen</button>` : ""}
+    <button class="btn btn-primary" onclick="updateUser(${u.id}, this)">Speichern</button>
+    ${u.id !== me.id ? `<button class="btn btn-red btn-sm" onclick="deleteUser(${u.id}, this)">Benutzer löschen</button>` : ""}
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
       }
 
-      async function updateUser(id) {
+      async function updateUser(id, btn) {
         const body = {
           name: document.getElementById("auName").value,
           role: document.getElementById("auRole").value,
@@ -3438,17 +3525,21 @@
             document.getElementById("auVac").value,
           ),
         };
-        await api("PUT", `/admin/users/${id}`, body);
-        closeModal();
-        loadAdmin();
+        await withSpinner(btn, async () => {
+          await api("PUT", `/admin/users/${id}`, body);
+          closeModal();
+          loadAdmin();
+        });
       }
 
-      async function deleteUser(id) {
+      async function deleteUser(id, btn) {
         if (!confirm("Benutzer wirklich löschen? Alle Daten werden entfernt."))
           return;
-        await api("DELETE", `/admin/users/${id}`, {});
-        closeModal();
-        loadAdmin();
+        await withSpinner(btn, async () => {
+          await api("DELETE", `/admin/users/${id}`, {});
+          closeModal();
+          loadAdmin();
+        });
       }
 
       // ── Modal ────────────────────────────────────────────────────────
