@@ -1738,10 +1738,10 @@
           : "";
       }
 
-      function projectSelectHtml(id, selectedId) {
+      function projectSelectHtml(id, selectedId, placeholder) {
         return `
     <select id="${id}">
-      <option value="">– Kein Projekt –</option>
+      <option value="">${placeholder || "– Kein Projekt –"}</option>
       ${projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>`;
       }
@@ -2109,7 +2109,7 @@
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
-    <div class="form-group"><label>Projekt</label>${projectSelectHtml("sdProject", defaultProjectId())}</div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("sdProject", "", "– Bitte auswählen –")}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="sdEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(titleDefault)}" /></div>
@@ -2125,6 +2125,7 @@
         const duration_hours = parseFloat(document.getElementById("sdDuration").value);
         const title = document.getElementById("sdTitle").value;
         const description = document.getElementById("sdDesc").value || null;
+        if (!project_id) return alert("Bitte ein Projekt auswählen");
         if (!endVal || !title || !duration_hours) {
           return alert("Enddatum, Titel und Dauer sind erforderlich");
         }
@@ -2528,7 +2529,7 @@
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
     ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keine geschätzte Dauer — bitte selbst festlegen.</div>` : ""}
-    <div class="form-group"><label>Projekt</label>${projectSelectHtml("impProject", defaultProjectId())}</div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("impProject", "", "– Bitte auswählen –")}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
@@ -2546,6 +2547,7 @@
         const duration_hours = parseFloat(document.getElementById("impDuration").value);
         const title = document.getElementById("impTitle").value;
         const description = document.getElementById("impDesc").value || null;
+        if (!project_id) return alert("Bitte ein Projekt auswählen");
         if (!endVal || !title || !duration_hours) {
           return alert("Enddatum, Titel und Dauer sind erforderlich");
         }

@@ -672,20 +672,21 @@ app.post("/api/import/confirm", auth, async (req, res) => {
     title, description, metadata,
   } = req.body;
   const ids = normalizeSourceIds(source_ids);
-  if (!source_type || !ids.length || ids.length > 200 || !service_date || !title || !duration_hours) {
-    return res.status(400).json({ error: "source_ids, service_date, title und duration_hours erforderlich" });
+  if (!source_type || !ids.length || ids.length > 200 || !service_date || !title || !duration_hours || !project_id) {
+    return res.status(400).json({ error: "Projekt, source_ids, service_date, title und duration_hours erforderlich" });
   }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    let validProjectId = null;
-    if (project_id) {
-      const proj = await client.query(
-        "SELECT id FROM projects WHERE id=$1 AND user_id=$2 AND active=true",
-        [project_id, req.user.id]
-      );
-      if (proj.rows.length) validProjectId = proj.rows[0].id;
+    const proj = await client.query(
+      "SELECT id FROM projects WHERE id=$1 AND user_id=$2 AND active=true",
+      [project_id, req.user.id]
+    );
+    if (!proj.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Projekt nicht gefunden" });
     }
+    const validProjectId = proj.rows[0].id;
     const entry = await client.query(
       `INSERT INTO billing_entries
          (user_id,project_id,service_date,end_time,duration_hours,title,description,source_type,source_external_id,source_metadata)
