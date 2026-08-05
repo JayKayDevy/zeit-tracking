@@ -1034,6 +1034,29 @@
         return data;
       }
 
+      // navigator.share() requires an active "user gesture" - if the export fetch takes
+      // a moment (z.B. Render-Server wacht aus dem Schlaf auf), ist dieses Zeitfenster oft
+      // schon abgelaufen und share() wirft einen NotAllowedError ("Permission denied").
+      // In dem Fall (und bei jedem anderen Share-Fehler außer einem bewussten Abbruch)
+      // fällt das hier auf den normalen Download-Link zurück, statt einen Fehler zu zeigen.
+      async function shareOrDownloadBlob(blob, filename) {
+        const file = new File([blob], filename, { type: blob.type });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file] });
+            return;
+          } catch (e) {
+            if (e.name === "AbortError") return;
+          }
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
       // ── Auth ────────────────────────────────────────────────────────
       function switchTab(tab) {
         document
@@ -1552,19 +1575,7 @@
           if (!res.ok) throw new Error("Export fehlgeschlagen");
           const blob = await res.blob();
           const filename = `zeiten-${historyYear}-${String(historyMon).padStart(2, "0")}.xlsx`;
-          const file = new File([blob], filename, { type: blob.type });
-
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file] });
-            return;
-          }
-
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = filename;
-          a.click();
-          URL.revokeObjectURL(url);
+          await shareOrDownloadBlob(blob, filename);
         } catch (e) {
           if (e.name !== "AbortError") alert(e.message);
         }
@@ -2350,17 +2361,7 @@
           if (!res.ok) throw new Error("Export fehlgeschlagen");
           const blob = await res.blob();
           const filename = `abrechnung-${orgYear}-${String(orgMon).padStart(2, "0")}.xlsx`;
-          const file = new File([blob], filename, { type: blob.type });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file] });
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = filename;
-          a.click();
-          URL.revokeObjectURL(url);
+          await shareOrDownloadBlob(blob, filename);
         } catch (e) {
           if (e.name !== "AbortError") alert(e.message);
         }
