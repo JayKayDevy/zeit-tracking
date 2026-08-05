@@ -538,6 +538,9 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
 
   const events = (data.items || [])
     .filter((e) => e.status !== "cancelled" && !reviewedIds.has(e.id))
+    // Termine, deren Betreff ausschließlich "Büro" ist, sind standardmäßig kein
+    // abrechenbarer Hinweis (reine Anwesenheitsnotiz, kein inhaltlicher Termin).
+    .filter((e) => (e.summary || "").trim().toLowerCase() !== "büro")
     .map((e) => ({
       id: e.id,
       source_type: "calendar",
