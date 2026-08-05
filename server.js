@@ -137,7 +137,47 @@ async function initDB() {
       ALTER TABLE import_reviews ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       ALTER TABLE projects ADD COLUMN IF NOT EXISTS saasdo_app_id INTEGER;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS saasdo_author VARCHAR(255);
+
+      CREATE TABLE IF NOT EXISTS saasdo_apps (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        app_id INTEGER NOT NULL,
+        app_name VARCHAR(255) NOT NULL,
+        note TEXT,
+        active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, app_id)
+      );
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_selected_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        key VARCHAR(100) PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT NOW()
+      );
     `);
+
+    // Projekt-AppID-Zuordnung (projects.saasdo_app_id, verworfenes Zwischenmodell) einmalig
+    // verlustfrei in die zentrale saasdo_apps-Liste überführen. Die Spalte selbst bleibt
+    // danach toter Altbestand stehen (nie wieder gelesen/geschrieben) - gleiches Prinzip
+    // wie billing_items/import_reviews.time_entry_id in diesem Schema.
+    const migrated = await client.query(
+      "SELECT 1 FROM schema_migrations WHERE key=$1",
+      ["saasdo_apps_backfill"]
+    );
+    if (!migrated.rows.length) {
+      await client.query(`
+        INSERT INTO saasdo_apps (user_id, app_id, app_name, active)
+        SELECT DISTINCT ON (user_id, saasdo_app_id)
+               user_id, saasdo_app_id, 'saas.do App ' || saasdo_app_id, true
+        FROM projects
+        WHERE saasdo_app_id IS NOT NULL
+        ORDER BY user_id, saasdo_app_id, id
+        ON CONFLICT (user_id, app_id) DO NOTHING
+      `);
+      await client.query("INSERT INTO schema_migrations (key) VALUES ($1)", ["saasdo_apps_backfill"]);
+    }
+
     console.log("DB ready");
   } finally {
     client.release();
@@ -192,7 +232,7 @@ app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const result = await pool.query(
-      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
+      "SELECT id,name,email,password_hash,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,last_selected_project_id,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE email=$1",
       [email]
     );
     const user = result.rows[0];
@@ -209,7 +249,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", auth, async (req, res) => {
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,last_selected_project_id,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -222,7 +262,7 @@ app.put("/api/auth/me", auth, async (req, res) => {
     [name, daily_hours, vacation_days_per_year, office_lat || null, office_lng || null, office_radius || 200, bundesland || null, accent_color || null, tracking_start_date || null, saasdo_author || null, req.user.id]
   );
   const result = await pool.query(
-    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
+    "SELECT id,name,email,role,daily_hours,vacation_days_per_year,office_lat,office_lng,office_radius,bundesland,accent_color,tracking_start_date,saasdo_author,last_selected_project_id,(google_refresh_token IS NOT NULL) as google_connected FROM users WHERE id=$1",
     [req.user.id]
   );
   res.json(result.rows[0]);
@@ -495,7 +535,12 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
       start: e.start.date || e.start.dateTime,
       end: e.end.date || e.end.dateTime,
       allDay: !!e.start.date,
+      status: e.status || "",
+      location: e.location || "",
+      conferenceLink:
+        e.hangoutLink || e.conferenceData?.entryPoints?.find((ep) => ep.entryPointType === "video")?.uri || "",
       organizer: e.organizer ? e.organizer.displayName || e.organizer.email || "" : "",
+      organizerEmail: e.organizer ? e.organizer.email || "" : "",
       attendees: (e.attendees || []).map((a) => ({
         name: a.displayName || a.email,
         email: a.email,
@@ -619,12 +664,20 @@ app.post("/api/import/confirm", auth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    let validProjectId = null;
+    if (project_id) {
+      const proj = await client.query(
+        "SELECT id FROM projects WHERE id=$1 AND user_id=$2 AND active=true",
+        [project_id, req.user.id]
+      );
+      if (proj.rows.length) validProjectId = proj.rows[0].id;
+    }
     const entry = await client.query(
       `INSERT INTO billing_entries
          (user_id,project_id,service_date,end_time,duration_hours,title,description,source_type,source_external_id,source_metadata)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [
-        req.user.id, project_id || null, service_date,
+        req.user.id, validProjectId, service_date,
         end_time || null, duration_hours,
         title, description || null, source_type,
         ids.length === 1 ? ids[0] : null,
@@ -646,6 +699,9 @@ app.post("/api/import/confirm", auth, async (req, res) => {
                      label=EXCLUDED.label, item_date=EXCLUDED.item_date, updated_at=NOW()`,
       values
     );
+    if (validProjectId) {
+      await client.query("UPDATE users SET last_selected_project_id=$1 WHERE id=$2", [validProjectId, req.user.id]);
+    }
     await client.query("COMMIT");
     res.json(entry.rows[0]);
   } catch (e) {
@@ -1021,16 +1077,14 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
   const userResult = await pool.query("SELECT name, saasdo_author FROM users WHERE id=$1", [req.user.id]);
   const author = userResult.rows[0]?.saasdo_author || userResult.rows[0]?.name;
 
-  const projResult = await pool.query(
-    "SELECT id, name, saasdo_app_id FROM projects WHERE user_id=$1 AND active=true AND saasdo_app_id IS NOT NULL ORDER BY id",
+  const appsResult = await pool.query(
+    "SELECT id, app_id, app_name FROM saasdo_apps WHERE user_id=$1 AND active=true ORDER BY id",
     [req.user.id]
   );
-  if (!projResult.rows.length) return res.json({ days: [], warnings: [] });
+  if (!appsResult.rows.length) return res.json({ days: [], warnings: [] });
 
-  const appIdToProject = new Map();
-  for (const p of projResult.rows) {
-    if (!appIdToProject.has(p.saasdo_app_id)) appIdToProject.set(p.saasdo_app_id, p);
-  }
+  const appIdToApp = new Map();
+  for (const a of appsResult.rows) appIdToApp.set(a.app_id, a);
 
   const reviewed = await pool.query(
     "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='saasdo'",
@@ -1038,16 +1092,16 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
   );
   const reviewedIds = new Set(reviewed.rows.map((r) => r.source_id));
 
-  const appIds = [...appIdToProject.keys()];
+  const appIds = [...appIdToApp.keys()];
   const results = await Promise.allSettled(appIds.map((id) => saasdoFetchVersions(id)));
 
   const warnings = [];
   const allCommits = [];
   results.forEach((r, i) => {
     const appId = appIds[i];
-    const project = appIdToProject.get(appId);
+    const app = appIdToApp.get(appId);
     if (r.status === "rejected") {
-      warnings.push(`Projekt „${project.name}" (App ${appId}): ${r.reason?.message || "saas.do-Fehler"}`);
+      warnings.push(`App „${app.app_name}" (${appId}): ${r.reason?.message || "saas.do-Fehler"}`);
       return;
     }
     const versions = r.value?.versions || [];
@@ -1058,7 +1112,7 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
       const sourceId = `saasdo:${appId}:${v.tag}`;
       if (reviewedIds.has(sourceId)) continue;
       allCommits.push({
-        sourceId, appId, projectId: project.id, projectName: project.name,
+        sourceId, appId, appName: app.app_name,
         tag: v.tag, author: v.author, message: v.message || "", ts,
       });
     }
@@ -1090,7 +1144,7 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
       const estimatedActivityMs = blocks.reduce((s, b) => s + b.durationMs, 0);
       const activityWindowMs =
         sortedCommits.length > 1 ? sortedCommits[sortedCommits.length - 1].ts - sortedCommits[0].ts : 0;
-      const apps = [...new Map(commits.map((c) => [c.appId, { appId: c.appId, projectId: c.projectId, projectName: c.projectName }])).values()];
+      const apps = [...new Map(commits.map((c) => [c.appId, { appId: c.appId, appName: c.appName }])).values()];
       return {
         date,
         commitCount: commits.length,
@@ -1107,7 +1161,7 @@ app.get("/api/import/saasdo", auth, async (req, res) => {
           durationMs: b.durationMs,
           hasDuration: b.hasDuration,
           commits: b.commits.map((c) => ({
-            sourceId: c.sourceId, appId: c.appId, projectId: c.projectId, projectName: c.projectName,
+            sourceId: c.sourceId, appId: c.appId, appName: c.appName,
             tag: c.tag, author: c.author, message: c.message, ts: c.ts,
           })),
         })),
@@ -1288,7 +1342,7 @@ app.get("/api/time/month-progress", auth, async (req, res) => {
 });
 
 app.post("/api/time/checkin", auth, async (req, res) => {
-  const { notes } = req.body;
+  const { notes, project_id } = req.body;
 
   const existing = await pool.query(
     `SELECT id FROM time_entries WHERE user_id=$1 AND check_out IS NULL`,
@@ -1296,10 +1350,26 @@ app.post("/api/time/checkin", auth, async (req, res) => {
   );
   if (existing.rows.length) return res.status(400).json({ error: "Bereits eingecheckt" });
 
+  let validProjectId = null;
+  if (project_id) {
+    const proj = await pool.query(
+      "SELECT id FROM projects WHERE id=$1 AND user_id=$2 AND active=true",
+      [project_id, req.user.id]
+    );
+    if (proj.rows.length) validProjectId = proj.rows[0].id;
+  }
+
   const result = await pool.query(
-    "INSERT INTO time_entries (user_id,check_in,notes) VALUES ($1,NOW(),$2) RETURNING *",
-    [req.user.id, notes || null]
+    "INSERT INTO time_entries (user_id,project_id,check_in,notes) VALUES ($1,$2,NOW(),$3) RETURNING *",
+    [req.user.id, validProjectId, notes || null]
   );
+  if (validProjectId) {
+    try {
+      await pool.query("UPDATE users SET last_selected_project_id=$1 WHERE id=$2", [validProjectId, req.user.id]);
+    } catch (e) {
+      console.error("last_selected_project_id update failed", e.message);
+    }
+  }
   res.json(result.rows[0]);
 });
 
@@ -1543,24 +1613,20 @@ function parseSaasdoAppId(value) {
 }
 
 app.post("/api/projects", auth, async (req, res) => {
-  const { name, color, external_id, saasdo_app_id } = req.body;
+  const { name, color, external_id } = req.body;
   if (!name) return res.status(400).json({ error: "Name erforderlich" });
-  const appId = parseSaasdoAppId(saasdo_app_id);
-  if (!appId.ok) return res.status(400).json({ error: "saas.do App-ID muss eine positive Ganzzahl sein" });
   const result = await pool.query(
-    "INSERT INTO projects (user_id,name,color,external_id,saasdo_app_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-    [req.user.id, name, color || "#c08552", external_id || null, appId.value]
+    "INSERT INTO projects (user_id,name,color,external_id) VALUES ($1,$2,$3,$4) RETURNING *",
+    [req.user.id, name, color || "#c08552", external_id || null]
   );
   res.json(result.rows[0]);
 });
 
 app.put("/api/projects/:id", auth, async (req, res) => {
-  const { name, color, external_id, active, saasdo_app_id } = req.body;
-  const appId = parseSaasdoAppId(saasdo_app_id);
-  if (!appId.ok) return res.status(400).json({ error: "saas.do App-ID muss eine positive Ganzzahl sein" });
+  const { name, color, external_id, active } = req.body;
   const result = await pool.query(
-    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4,saasdo_app_id=$5 WHERE id=$6 AND user_id=$7 RETURNING *",
-    [name, color, external_id || null, active !== false, appId.value, req.params.id, req.user.id]
+    "UPDATE projects SET name=$1,color=$2,external_id=$3,active=$4 WHERE id=$5 AND user_id=$6 RETURNING *",
+    [name, color, external_id || null, active !== false, req.params.id, req.user.id]
   );
   if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);
@@ -1568,6 +1634,65 @@ app.put("/api/projects/:id", auth, async (req, res) => {
 
 app.delete("/api/projects/:id", auth, async (req, res) => {
   await pool.query("UPDATE projects SET active=false WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+
+// ── saas.do-Apps (zentrale, projektunabhängige Liste) ───────────────────────
+
+app.get("/api/saasdo-apps", auth, async (req, res) => {
+  const result = await pool.query(
+    "SELECT * FROM saasdo_apps WHERE user_id=$1 ORDER BY app_name",
+    [req.user.id]
+  );
+  res.json(result.rows);
+});
+
+app.post("/api/saasdo-apps", auth, async (req, res) => {
+  const { app_id, app_name, note } = req.body;
+  const appId = parseSaasdoAppId(app_id);
+  if (!appId.ok || appId.value === null) {
+    return res.status(400).json({ error: "App-ID muss eine positive Ganzzahl sein" });
+  }
+  if (!app_name) return res.status(400).json({ error: "App-Name erforderlich" });
+  const existing = await pool.query(
+    "SELECT id FROM saasdo_apps WHERE user_id=$1 AND app_id=$2",
+    [req.user.id, appId.value]
+  );
+  if (existing.rows.length) return res.status(409).json({ error: "App-ID bereits vorhanden" });
+  const result = await pool.query(
+    "INSERT INTO saasdo_apps (user_id,app_id,app_name,note) VALUES ($1,$2,$3,$4) RETURNING *",
+    [req.user.id, appId.value, app_name, note || null]
+  );
+  res.json(result.rows[0]);
+});
+
+app.put("/api/saasdo-apps/:id", auth, async (req, res) => {
+  const { app_name, note, active } = req.body;
+  if (!app_name) return res.status(400).json({ error: "App-Name erforderlich" });
+  const result = await pool.query(
+    "UPDATE saasdo_apps SET app_name=$1,note=$2,active=$3,updated_at=NOW() WHERE id=$4 AND user_id=$5 RETURNING *",
+    [app_name, note || null, active !== false, req.params.id, req.user.id]
+  );
+  if (!result.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
+  res.json(result.rows[0]);
+});
+
+app.delete("/api/saasdo-apps/:id", auth, async (req, res) => {
+  const app = await pool.query(
+    "SELECT app_id FROM saasdo_apps WHERE id=$1 AND user_id=$2",
+    [req.params.id, req.user.id]
+  );
+  if (!app.rows.length) return res.status(404).json({ error: "Nicht gefunden" });
+  const referenced = await pool.query(
+    `SELECT 1 FROM import_reviews
+     WHERE user_id=$1 AND source_type='saasdo' AND source_id LIKE 'saasdo:' || $2::text || ':%'
+     LIMIT 1`,
+    [req.user.id, app.rows[0].app_id]
+  );
+  if (referenced.rows.length) {
+    return res.status(400).json({ error: "App wird bereits von Organizer-Daten referenziert – bitte stattdessen deaktivieren" });
+  }
+  await pool.query("DELETE FROM saasdo_apps WHERE id=$1 AND user_id=$2", [req.params.id, req.user.id]);
   res.json({ ok: true });
 });
 

@@ -1435,6 +1435,7 @@
       async function doCheckin() {
         showModal(`
     <div class="modal-title">▶ Check-In</div>
+    <div class="form-group"><label>Projekt (optional)</label>${projectSelectHtml("ciProject", defaultProjectId())}</div>
     <div class="form-group"><label>Notiz (optional)</label><input type="text" id="ciNote" placeholder="z.B. Home Office" /></div>
     <button class="btn btn-green" onclick="confirmCheckin()">Einchecken ✓</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
@@ -1443,10 +1444,13 @@
 
       async function confirmCheckin() {
         const notes = document.getElementById("ciNote")?.value || null;
+        const project_id = document.getElementById("ciProject")?.value || undefined;
         try {
           await api("POST", "/time/checkin", {
             notes: notes || undefined,
+            project_id,
           });
+          if (project_id) me.last_selected_project_id = Number(project_id);
           closeModal();
           await loadHomeData();
         } catch (e) {
@@ -1686,6 +1690,34 @@
           .replace(/>/g, "&gt;");
       }
 
+      function formatAttendees(attendees) {
+        const seen = new Set();
+        const names = [];
+        for (const a of attendees || []) {
+          const label = (a.name || a.email || "").trim();
+          if (!label) continue;
+          const key = (a.email || label).toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          names.push(label);
+        }
+        return names.length ? `Teilnehmer: ${names.join(", ")}` : "";
+      }
+
+      function defaultProjectId() {
+        return me.last_selected_project_id && projects.some((p) => p.id === me.last_selected_project_id)
+          ? me.last_selected_project_id
+          : "";
+      }
+
+      function projectSelectHtml(id, selectedId) {
+        return `
+    <select id="${id}">
+      <option value="">– Kein Projekt –</option>
+      ${projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(selectedId) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+    </select>`;
+      }
+
       function durationStepperHtml(id, value) {
         return `
     <div class="stepper-row">
@@ -1885,7 +1917,7 @@
 
       function renderSaasdoDayRow(day) {
         const expanded = expandedSaasdoDays.has(day.date);
-        const apps = day.apps.map((a) => escapeHtml(a.projectName)).join(", ");
+        const apps = day.apps.map((a) => escapeHtml(a.appName)).join(", ");
         return `
     <div style="border-bottom:1px solid var(--border);padding:8px 0">
       <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSaasdoDay('${day.date}')">
@@ -1927,7 +1959,7 @@
         const durationText = block.hasDuration
           ? `Geschätzter Commit-Zeitraum: ${formatDurationMs(block.durationMs)}`
           : "einzelner Commit – keine Zeitschätzung möglich";
-        const appLabels = [...new Set(block.commits.map((c) => c.appId))].map((id) => "App " + id).join(", ");
+        const appLabels = [...new Map(block.commits.map((c) => [c.appId, c.appName])).values()].map(escapeHtml).join(", ");
         return `
     <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600">
@@ -1947,7 +1979,7 @@
     <label style="display:flex;align-items:flex-start;gap:6px;font-size:12px;margin:4px 0 4px 22px">
       <input type="checkbox" ${checked ? "checked" : ""} style="margin-top:2px" onchange="toggleSaasdoCommit('${day.date}', ${blockIndex}, ${commitIndex})" />
       <span>
-        <span style="color:var(--muted)">${fmtTime(commit.ts)} · ${escapeHtml(commit.projectName)} · ${escapeHtml(commit.tag)} · ${escapeHtml(commit.author)}</span><br>
+        <span style="color:var(--muted)">${fmtTime(commit.ts)} · ${escapeHtml(commit.appName)} · ${escapeHtml(commit.tag)} · ${escapeHtml(commit.author)}</span><br>
         ${escapeHtml((commit.message || "").split("\n")[0])}
       </span>
     </label>
@@ -2030,32 +2062,25 @@
         const selBlocks = computeSaasdoBlocksClient(commits);
         const estimatedMs = selBlocks.reduce((s, b) => s + b.durationMs, 0);
         const durationHours = estimatedMs > 0 ? Math.round((estimatedMs / 3600000) * 4) / 4 : "";
-        const projectIds = [...new Set(commits.map((c) => c.projectId))];
-        const project = projects.find((p) => p.id === projectIds[0]);
-        const multiProject = projectIds.length > 1;
-        const titleDefault = multiProject
-          ? "Entwicklung – mehrere Projekte"
-          : `Entwicklung – ${project ? project.name : "Projekt"}`;
+        const appIds = [...new Set(commits.map((c) => c.appId))];
+        const multiApp = appIds.length > 1;
+        const titleDefault = multiApp
+          ? "Entwicklung – saas.do"
+          : `Entwicklung – ${commits[0].appName}`;
         const endVal = berlinLocalInput(new Date(commits[commits.length - 1].ts).toISOString());
         const comment = buildSaasdoComment(commits, selBlocks);
 
         pendingSaasdoDate = dateKey;
         pendingSaasdoMetadata = {
-          appIds: [...new Set(commits.map((c) => c.appId))],
+          appIds,
           tags: commits.map((c) => c.tag),
-          commits: commits.map((c) => ({ appId: c.appId, tag: c.tag, projectId: c.projectId })),
+          commits: commits.map((c) => ({ appId: c.appId, tag: c.tag })),
         };
         pendingSaasdoSourceIds = commits.map((c) => c.sourceId);
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
-    ${multiProject ? `<div style="font-size:12px;color:var(--muted)">Auswahl umfasst mehrere Projekte – bitte Projekt manuell prüfen.</div>` : ""}
-    <div class="form-group"><label>Projekt</label>
-      <select id="sdProject">
-        <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}" ${project && p.id === project.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
-      </select>
-    </div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("sdProject", defaultProjectId())}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="sdEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(titleDefault)}" /></div>
@@ -2086,6 +2111,7 @@
             description,
             metadata: pendingSaasdoMetadata,
           });
+          if (project_id) me.last_selected_project_id = Number(project_id);
           closeModal();
           removeSaasdoCommits(pendingSaasdoDate, pendingSaasdoSourceIds);
           billingEntries = await api("GET", `/billing?year=${orgYear}&month=${orgMon}`);
@@ -2138,7 +2164,7 @@
         day.lastCommitAt = remaining[remaining.length - 1].ts;
         day.activityWindowMs = remaining.length > 1 ? remaining[remaining.length - 1].ts - remaining[0].ts : 0;
         day.estimatedActivityMs = blocks.reduce((s, b) => s + b.durationMs, 0);
-        day.apps = [...new Map(remaining.map((c) => [c.appId, { appId: c.appId, projectId: c.projectId, projectName: c.projectName }])).values()];
+        day.apps = [...new Map(remaining.map((c) => [c.appId, { appId: c.appId, appName: c.appName }])).values()];
         day.blocks = blocks.map((b, i) => ({
           blockIndex: i,
           startTs: b.commits[0].ts,
@@ -2258,7 +2284,7 @@
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="editBillEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("editBillDuration", b.duration_hours || "")}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
-    <div class="form-group"><label>Beschreibung</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
     <button class="btn btn-primary" onclick="saveBillingEntry(${b.id})">Speichern</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -2408,10 +2434,18 @@
           showEmailDetails(item.id);
           return;
         }
+        const RESPONSE_LABELS = {
+          accepted: "zugesagt", declined: "abgesagt", tentative: "vorläufig", needsAction: "ausstehend",
+        };
+        const STATUS_LABELS = { confirmed: "bestätigt", cancelled: "abgesagt", tentative: "vorläufig" };
         const attendeesHtml =
           (item.attendees || [])
-            .map((a) => `${a.name}${a.responseStatus ? ` (${a.responseStatus})` : ""}`)
-            .join(", ") || "–";
+            .map((a) => {
+              const label = a.name || a.email || "";
+              const status = a.responseStatus ? ` (${RESPONSE_LABELS[a.responseStatus] || a.responseStatus})` : "";
+              return `${escapeHtml(label)}${escapeHtml(status)}${a.email && a.name ? ` <span style="color:var(--muted)">${escapeHtml(a.email)}</span>` : ""}`;
+            })
+            .join("<br>") || "–";
         showModal(`
     <div class="modal-title">${escapeHtml(item.title)}</div>
     <div style="font-size:13px;color:var(--muted)">${
@@ -2419,8 +2453,11 @@
         ? fmtDate(item.start)
         : `${fmtDate(item.start)} ${fmtTime(item.start)}${item.start !== item.end ? " – " + fmtTime(item.end) : ""}`
     }</div>
-    <div style="font-size:13px"><strong>Organisator:</strong> ${escapeHtml(item.organizer) || "–"}</div>
-    <div style="font-size:13px"><strong>Teilnehmer:</strong> ${escapeHtml(attendeesHtml)}</div>
+    ${item.status ? `<div style="font-size:13px"><strong>Status:</strong> ${escapeHtml(STATUS_LABELS[item.status] || item.status)}</div>` : ""}
+    <div style="font-size:13px"><strong>Organisator:</strong> ${escapeHtml(item.organizer) || "–"}${item.organizerEmail && item.organizerEmail !== item.organizer ? ` <span style="color:var(--muted)">${escapeHtml(item.organizerEmail)}</span>` : ""}</div>
+    <div style="font-size:13px"><strong>Teilnehmer:</strong><br>${attendeesHtml}</div>
+    ${item.location ? `<div style="font-size:13px"><strong>Ort:</strong> ${escapeHtml(item.location)}</div>` : ""}
+    ${item.conferenceLink ? `<div style="font-size:13px"><strong>Konferenzlink:</strong> <a href="${escapeHtml(item.conferenceLink)}" target="_blank" rel="noopener">${escapeHtml(item.conferenceLink)}</a></div>` : ""}
     ${item.description ? `<div style="font-size:13px;white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(item.description)}</div>` : ""}
     <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
   `);
@@ -2456,37 +2493,27 @@
 
         if (isEmail) {
           metadata = { to: item.to, snippet: item.snippet };
-          try {
-            const { body } = await api("GET", `/import/emails/${item.id}/body`);
-            description = (body || "").slice(0, 500);
-          } catch (e) {
-            description = item.snippet || "";
-          }
+          description = "";
         } else {
           metadata = { organizer: item.organizer, attendees: item.attendees, allDay: item.allDay };
-          description = item.description || "";
+          description = formatAttendees(item.attendees);
+          // Die vereinbarten +5 Minuten betreffen ausschließlich die vorgeschlagene Dauer,
+          // niemals das fachliche Enddatum (das bleibt das tatsächliche Terminende).
           const rawHours = (new Date(item.end) - new Date(item.start)) / 3600000;
-          durationHours = Math.round(rawHours * 4) / 4 || "";
+          durationHours = Math.round((rawHours + 5 / 60) * 4) / 4 || "";
         }
 
-        const endSource = isEmail
-          ? item.sentAt
-          : new Date(new Date(item.end).getTime() + 5 * 60000).toISOString();
+        const endSource = isEmail ? item.sentAt : item.end;
         const endVal = berlinLocalInput(endSource);
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
     ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keine geschätzte Dauer — bitte selbst festlegen.</div>` : ""}
-    <div class="form-group"><label>Projekt</label>
-      <select id="impProject">
-        <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
-      </select>
-    </div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("impProject", defaultProjectId())}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
     <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", durationHours)}</div>
     <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
-    <div class="form-group"><label>Beschreibung</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
     <button class="btn btn-primary" onclick="confirmImport('${item.id}')">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -2515,6 +2542,7 @@
             description,
             metadata,
           });
+          if (project_id) me.last_selected_project_id = Number(project_id);
           closeModal();
           if (importView === "email") importEmails = importEmails.filter((e) => e.id !== id);
           else importEvents = importEvents.filter((e) => e.id !== id);
@@ -2938,6 +2966,15 @@
       <button class="btn btn-primary btn-sm" style="width:auto" onclick="saveProfile()">Speichern</button>
     </div>
 
+    <div class="section-title">💻 saas.do Apps</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+      <div style="font-size:13px;color:var(--muted)">
+        Zentrale Liste der saas.do-Apps, deren Commits im Organizer geprüft werden. Keine feste Projektzuordnung – das Projekt wird erst beim Übernehmen gewählt.
+      </div>
+      <div id="saasdoAppsContent"></div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showAddSaasdoApp()">+ App hinzufügen</button>
+    </div>
+
     <div class="section-title">📍 Büro-Standort (Geofencing)</div>
     <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
       <div style="font-size:13px;color:var(--muted)">
@@ -2994,11 +3031,122 @@
     </div>
   `;
         loadProjects().then(renderProjects);
+        loadSaasdoApps().then(renderSaasdoApps);
       }
 
       async function loadProjects() {
         projects = await api("GET", "/projects");
         return projects;
+      }
+
+      let saasdoApps = [];
+      async function loadSaasdoApps() {
+        saasdoApps = await api("GET", "/saasdo-apps");
+        return saasdoApps;
+      }
+
+      function renderSaasdoApps() {
+        const el = document.getElementById("saasdoAppsContent");
+        if (!el) return;
+        if (!saasdoApps.length) {
+          el.innerHTML = '<div style="color:var(--muted);font-size:13px">Noch keine Apps angelegt</div>';
+          return;
+        }
+        el.innerHTML = saasdoApps
+          .map(
+            (a) => `
+    <div class="project-row">
+      <div style="flex:1">
+        <div class="project-name">${escapeHtml(a.app_name)}${a.active ? "" : ' <span class="tag">inaktiv</span>'}</div>
+        <div class="project-ext">App-ID: ${a.app_id}</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editSaasdoApp(${a.id})">✏️</button>
+    </div>
+  `,
+          )
+          .join("");
+      }
+
+      function showAddSaasdoApp() {
+        showModal(`
+    <div class="modal-title">saas.do App hinzufügen</div>
+    <div class="form-group"><label>App-ID</label><input type="number" id="saAppId" min="1" step="1" placeholder="z.B. 10320" /></div>
+    <div class="form-group"><label>App-Name</label><input type="text" id="saAppName" placeholder="frei wählbar" /></div>
+    <div class="form-group"><label>Notiz (optional)</label><input type="text" id="saNote" /></div>
+    <button class="btn btn-primary" onclick="createSaasdoApp()">Anlegen</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function createSaasdoApp() {
+        const app_id = document.getElementById("saAppId").value;
+        const app_name = document.getElementById("saAppName").value;
+        const note = document.getElementById("saNote").value;
+        if (!app_id || !app_name) return alert("App-ID und App-Name sind erforderlich");
+        try {
+          await api("POST", "/saasdo-apps", { app_id, app_name, note: note || undefined });
+        } catch (e) {
+          return alert(e.message);
+        }
+        closeModal();
+        await loadSaasdoApps();
+        renderSaasdoApps();
+      }
+
+      function editSaasdoApp(id) {
+        const a = saasdoApps.find((x) => x.id === id);
+        if (!a) return;
+        showModal(`
+    <div class="modal-title">saas.do App bearbeiten</div>
+    <div class="form-group"><label>App-ID</label><input type="text" value="${a.app_id}" disabled /></div>
+    <div class="form-group"><label>App-Name</label><input type="text" id="saeAppName" value="${escapeHtml(a.app_name)}" /></div>
+    <div class="form-group"><label>Notiz (optional)</label><input type="text" id="saeNote" value="${escapeHtml(a.note || "")}" /></div>
+    <button class="btn btn-primary" onclick="updateSaasdoApp(${a.id})">Speichern</button>
+    <button class="btn btn-secondary btn-sm" onclick="toggleSaasdoAppActive(${a.id})">${a.active ? "Deaktivieren" : "Aktivieren"}</button>
+    <button class="btn btn-red btn-sm" onclick="deleteSaasdoApp(${a.id})">Löschen</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
+  `);
+      }
+
+      async function updateSaasdoApp(id) {
+        const a = saasdoApps.find((x) => x.id === id);
+        if (!a) return;
+        const app_name = document.getElementById("saeAppName").value;
+        const note = document.getElementById("saeNote").value;
+        if (!app_name) return alert("App-Name ist erforderlich");
+        try {
+          await api("PUT", `/saasdo-apps/${id}`, { app_name, note: note || undefined, active: a.active });
+        } catch (e) {
+          return alert(e.message);
+        }
+        closeModal();
+        await loadSaasdoApps();
+        renderSaasdoApps();
+      }
+
+      async function toggleSaasdoAppActive(id) {
+        const a = saasdoApps.find((x) => x.id === id);
+        if (!a) return;
+        try {
+          await api("PUT", `/saasdo-apps/${id}`, { app_name: a.app_name, note: a.note, active: !a.active });
+        } catch (e) {
+          return alert(e.message);
+        }
+        closeModal();
+        await loadSaasdoApps();
+        renderSaasdoApps();
+      }
+
+      async function deleteSaasdoApp(id) {
+        if (!confirm("App wirklich löschen?")) return;
+        try {
+          await api("DELETE", `/saasdo-apps/${id}`, {});
+        } catch (e) {
+          return alert(e.message);
+        }
+        closeModal();
+        await loadSaasdoApps();
+        renderSaasdoApps();
       }
 
       function renderProjects() {
@@ -3017,7 +3165,6 @@
       <div style="flex:1">
         <div class="project-name">${escapeHtml(p.name)}</div>
         ${p.external_id ? `<div class="project-ext">Auftragsnummer: ${escapeHtml(p.external_id)}</div>` : ""}
-        ${p.saasdo_app_id ? `<div class="project-ext">saas.do App-ID: ${p.saasdo_app_id}</div>` : ""}
       </div>
       <button class="btn btn-secondary btn-sm" style="width:auto" onclick="editProject(${p.id})">✏️</button>
     </div>
@@ -3032,7 +3179,6 @@
     <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="Projektname / Kunde" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="pColor" value="${DEFAULT_ACCENT}" /></div>
     <div class="form-group"><label>Auftragsnummer (optional)</label><input type="text" id="pExtId" placeholder="z.B. AB-2026-014" /></div>
-    <div class="form-group"><label>saas.do App-ID (optional)</label><input type="number" id="pAppId" min="1" step="1" placeholder="z.B. 10320" /></div>
     <button class="btn btn-primary" onclick="createProject()">Anlegen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -3042,10 +3188,9 @@
         const name = document.getElementById("pName").value;
         const color = document.getElementById("pColor").value;
         const external_id = document.getElementById("pExtId").value;
-        const saasdo_app_id = document.getElementById("pAppId").value || undefined;
         if (!name) return alert("Name fehlt");
         try {
-          await api("POST", "/projects", { name, color, external_id: external_id || undefined, saasdo_app_id });
+          await api("POST", "/projects", { name, color, external_id: external_id || undefined });
         } catch (e) {
           return alert(e.message);
         }
@@ -3062,7 +3207,6 @@
     <div class="form-group"><label>Name</label><input type="text" id="epName" value="${escapeHtml(p.name)}" /></div>
     <div class="form-group"><label>Farbe</label><input type="color" id="epColor" value="${p.color}" /></div>
     <div class="form-group"><label>Auftragsnummer</label><input type="text" id="epExtId" value="${escapeHtml(p.external_id || "")}" /></div>
-    <div class="form-group"><label>saas.do App-ID (optional)</label><input type="number" id="epAppId" min="1" step="1" value="${p.saasdo_app_id || ""}" placeholder="z.B. 10320" /></div>
     <button class="btn btn-primary" onclick="updateProject(${p.id})">Speichern</button>
     <button class="btn btn-red btn-sm" onclick="archiveProject(${p.id})">Archivieren</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
@@ -3073,9 +3217,8 @@
         const name = document.getElementById("epName").value;
         const color = document.getElementById("epColor").value;
         const external_id = document.getElementById("epExtId").value;
-        const saasdo_app_id = document.getElementById("epAppId").value || undefined;
         try {
-          await api("PUT", `/projects/${id}`, { name, color, external_id, active: true, saasdo_app_id });
+          await api("PUT", `/projects/${id}`, { name, color, external_id, active: true });
         } catch (e) {
           return alert(e.message);
         }
