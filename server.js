@@ -946,6 +946,13 @@ app.get("/api/saasdo-debug", auth, adminOnly, async (req, res) => {
     envUsernameSet: !!process.env.SAASDO_USERNAME,
     envPasswordSet: !!process.env.SAASDO_PASSWORD,
   };
+  try {
+    const ipResp = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(5000) });
+    const ipData = await ipResp.json();
+    debug.outboundIp = ipData.ip;
+  } catch (e) {
+    debug.outboundIp = "unbekannt (" + e.message + ")";
+  }
   if (!debug.envUsernameSet || !debug.envPasswordSet) {
     return res.json(debug);
   }
