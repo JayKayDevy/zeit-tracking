@@ -686,6 +686,23 @@
         max-height: 90vh;
         overflow-y: auto;
       }
+      .side-panel {
+        display: none;
+      }
+      @media (min-width: 768px) {
+        .side-panel.open {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          background: var(--bg2);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          width: 380px;
+          padding: 1.5rem;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+      }
       .modal-title {
         font-size: 18px;
         font-weight: 800;
@@ -982,6 +999,9 @@
       onclick="closeModal(event)"
     >
       <div class="modal" id="modalInner"></div>
+      <div class="side-panel" id="sidePanel">
+        <div id="sidePanelInner"></div>
+      </div>
     </div>
 
     <script>
@@ -2134,7 +2154,8 @@
       }
 
       function showSaasdoDetailsFromConfirm(dateKey) {
-        pendingSaasdoFormState = captureSaasdoFormState();
+        const desktop = isDesktopViewport();
+        if (!desktop) pendingSaasdoFormState = captureSaasdoFormState();
         const day = saasdoDays.find((d) => d.date === dateKey);
         if (!day) return;
         const selected = getSaasdoSelection(dateKey);
@@ -2153,11 +2174,11 @@
   `,
             )
             .join("") || "<div style='color:var(--muted);font-size:13px'>Keine Commits ausgewählt</div>";
-        showModal(`
+        const bodyHtml = `
     <div class="modal-title">Ausgewählte Commits</div>
     <div style="max-height:50vh;overflow-y:auto">${html}</div>
-    <button class="btn btn-secondary" onclick="resumeSaasdoConfirm('${dateKey}')">Zurück</button>
-  `);
+  `;
+        renderDetailsView(bodyHtml, desktop ? "panel" : "replace", `resumeSaasdoConfirm('${dateKey}')`);
       }
 
       function resumeSaasdoConfirm(dateKey) {
@@ -2408,8 +2429,9 @@
       }
 
       function showBillingDetailsFromEdit(id) {
-        pendingBillingEditState = captureBillingEditState();
-        showBillingDetails(id, true);
+        const desktop = isDesktopViewport();
+        if (!desktop) pendingBillingEditState = captureBillingEditState();
+        showBillingDetails(id, desktop ? "panel" : "replace");
       }
 
       function resumeBillingEdit(id) {
@@ -2418,14 +2440,11 @@
         editBillingEntry(id, saved);
       }
 
-      function showBillingDetails(id, returnToEdit) {
+      function showBillingDetails(id, mode) {
         const b = billingEntries.find((x) => x.id === id);
         if (!b) return;
         const metaText = formatSourceMetadata(b.source_type, b.source_metadata);
-        const backBtn = returnToEdit
-          ? `<button class="btn btn-secondary" onclick="resumeBillingEdit(${id})">Zurück</button>`
-          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
-        showModal(`
+        const bodyHtml = `
     <div class="modal-title">${escapeHtml(b.title)}</div>
     <div style="font-size:13px;color:var(--muted)">
       ${new Date(b.service_date).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
@@ -2435,8 +2454,8 @@
     <div style="font-size:13px"><strong>Quelle:</strong> ${escapeHtml(SOURCE_LABELS[b.source_type] || b.source_type)}</div>
     ${metaText ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;margin-top:.5rem"><strong>Quelldetails:</strong><br>${escapeHtml(metaText)}</div>` : ""}
     ${b.description ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;max-height:40vh;overflow-y:auto;margin-top:.5rem"><strong>Kommentar:</strong><br>${escapeHtml(b.description)}</div>` : `<div style="font-size:13px;color:var(--muted);margin-top:.5rem">Kein Kommentar</div>`}
-    ${backBtn}
-  `);
+  `;
+        renderDetailsView(bodyHtml, mode, `resumeBillingEdit(${id})`);
       }
 
       function editBillingEntry(id, savedState) {
@@ -2609,8 +2628,9 @@
       }
 
       function showImportDetailsFromConfirm(id) {
-        pendingImportFormState = captureImportFormState();
-        showItemDetails(id, true);
+        const desktop = isDesktopViewport();
+        if (!desktop) pendingImportFormState = captureImportFormState();
+        showItemDetails(id, desktop ? "panel" : "replace");
       }
 
       function resumeImportConfirm(id) {
@@ -2619,11 +2639,11 @@
         showImportConfirmModal(id, saved);
       }
 
-      function showItemDetails(id, returnToConfirm) {
+      function showItemDetails(id, mode) {
         const item = findImportItem(id);
         if (!item) return;
         if (importView === "email") {
-          showEmailDetails(item.id, returnToConfirm);
+          showEmailDetails(item.id, mode);
           return;
         }
         const RESPONSE_LABELS = {
@@ -2638,10 +2658,7 @@
               return `${escapeHtml(label)}${escapeHtml(status)}${a.email && a.name ? ` <span style="color:var(--muted)">${escapeHtml(a.email)}</span>` : ""}`;
             })
             .join("<br>") || "–";
-        const backBtn = returnToConfirm
-          ? `<button class="btn btn-secondary" onclick="resumeImportConfirm('${id}')">Zurück</button>`
-          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
-        showModal(`
+        const bodyHtml = `
     <div class="modal-title">${escapeHtml(item.title)}</div>
     <div style="font-size:13px;color:var(--muted)">${
       item.allDay
@@ -2654,30 +2671,27 @@
     ${item.location ? `<div style="font-size:13px"><strong>Ort:</strong> ${escapeHtml(item.location)}</div>` : ""}
     ${item.conferenceLink ? `<div style="font-size:13px"><strong>Konferenzlink:</strong> <a href="${escapeHtml(item.conferenceLink)}" target="_blank" rel="noopener">${escapeHtml(item.conferenceLink)}</a></div>` : ""}
     ${item.description ? `<div style="font-size:13px;white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(item.description)}</div>` : ""}
-    ${backBtn}
-  `);
+  `;
+        renderDetailsView(bodyHtml, mode, `resumeImportConfirm('${id}')`);
       }
 
-      async function showEmailDetails(id, returnToConfirm) {
-        showModal(
-          `<div class="modal-title">E-Mail-Inhalt</div><div class="spinner-wrap"><div class="spinner"></div></div>`,
-        );
-        const backBtn = returnToConfirm
-          ? `<button class="btn btn-secondary" onclick="resumeImportConfirm('${id}')">Zurück</button>`
-          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
+      async function showEmailDetails(id, mode) {
+        const loadingHtml = `<div class="modal-title">E-Mail-Inhalt</div><div class="spinner-wrap"><div class="spinner"></div></div>`;
+        if (mode === "panel") showSidePanel(loadingHtml);
+        else showModal(loadingHtml);
         try {
           const { body } = await api("GET", `/import/emails/${id}/body`);
-          showModal(`
+          const bodyHtml = `
     <div class="modal-title">E-Mail-Inhalt</div>
     <div style="font-size:13px;white-space:pre-wrap;max-height:50vh;overflow-y:auto">${escapeHtml(body) || "(kein Inhalt)"}</div>
-    ${backBtn}
-  `);
+  `;
+          renderDetailsView(bodyHtml, mode, `resumeImportConfirm('${id}')`);
         } catch (e) {
-          showModal(`
+          const errHtml = `
     <div class="modal-title">Fehler</div>
     <div style="font-size:13px;color:var(--red)">${escapeHtml(e.message)}</div>
-    ${backBtn}
-  `);
+  `;
+          renderDetailsView(errHtml, mode, `resumeImportConfirm('${id}')`);
         }
       }
 
@@ -3675,6 +3689,33 @@
       function closeModal(e) {
         if (e && e.target !== document.getElementById("modal")) return;
         document.getElementById("modal").style.display = "none";
+        closeSidePanel();
+      }
+
+      // Details-Ansichten aus einem offenen Bearbeiten-/Übernehmen-Dialog: auf dem
+      // Desktop (≥768px) öffnet sich ein Seitenpanel neben dem Dialog, der Dialog
+      // selbst bleibt unverändert offen (kein Zustand zu merken/wiederherzustellen).
+      // Auf schmalen Bildschirmen ersetzt die Details-Ansicht den Dialog wie bisher,
+      // ein "Zurück"-Button stellt ihn wieder her.
+      function isDesktopViewport() {
+        return window.matchMedia("(min-width: 768px)").matches;
+      }
+      function showSidePanel(html) {
+        document.getElementById("sidePanelInner").innerHTML = html;
+        document.getElementById("sidePanel").classList.add("open");
+      }
+      function closeSidePanel() {
+        document.getElementById("sidePanel").classList.remove("open");
+        document.getElementById("sidePanelInner").innerHTML = "";
+      }
+      function renderDetailsView(bodyHtml, mode, backOnclick) {
+        if (mode === "panel") {
+          showSidePanel(`${bodyHtml}<button class="btn btn-secondary" onclick="closeSidePanel()">Schließen</button>`);
+        } else if (mode === "replace") {
+          showModal(`${bodyHtml}<button class="btn btn-secondary" onclick="${backOnclick}">Zurück</button>`);
+        } else {
+          showModal(`${bodyHtml}<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`);
+        }
       }
 
       // ── Keyboard ─────────────────────────────────────────────────────
