@@ -28,7 +28,9 @@ node connector/saasdo-sync.js
 Das Script:
 1. Holt deine aktiven saas.do-Apps aus den Organizer-Einstellungen.
 2. Loggt sich bei saas.do ein.
-3. Ruft pro aktiver App die Versionsdaten ab.
+3. Ruft pro aktiver App die Versionsdaten ab und filtert sie direkt auf den in den
+   Organizer-Einstellungen hinterlegten Autor (`saasdo_author`) - es werden nur deine
+   eigenen Commits übertragen, nicht die volle App-Historie.
 4. Schickt die Rohdaten an den Organizer (`POST /api/saasdo/sync`).
 
 Anschließend zeigt „Entwicklung prüfen" im Organizer die neuen Commits.

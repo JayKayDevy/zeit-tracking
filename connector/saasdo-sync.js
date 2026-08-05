@@ -126,15 +126,20 @@ async function main() {
   }
   console.log(`${apps.length} aktive App(s) gefunden: ${apps.map((a) => `${a.app_name} (${a.app_id})`).join(", ")}`);
 
+  const me = await organizerRequest("GET", "/auth/me");
+  const author = me.saasdo_author || me.name;
+  console.log(`Autor-Filter: „${author}" (nur diese Commits werden übertragen)`);
+
   await saasdoLogin();
 
   const results = [];
   for (const app of apps) {
     try {
       const data = await saasdoFetchVersions(app.app_id);
-      const versions = data.versions || [];
+      const all = data.versions || [];
+      const versions = all.filter((v) => v.author === author);
       results.push({ app_id: app.app_id, versions });
-      console.log(`✓ ${app.app_name} (${app.app_id}): ${versions.length} Versionen abgerufen`);
+      console.log(`✓ ${app.app_name} (${app.app_id}): ${versions.length} von ${all.length} Versionen (Autor „${author}")`);
     } catch (e) {
       console.error(`✕ ${app.app_name} (${app.app_id}): ${e.message}`);
     }

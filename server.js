@@ -13,7 +13,9 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI;
 
-app.use(express.json());
+// Standardlimit (100kb) reicht nicht für den saas.do-Connector-Sync-Push -
+// eine App-Historie kann mehrere zehntausend Commits umfassen.
+app.use(express.json({ limit: "25mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // ── Database ──────────────────────────────────────────────────────────────────
