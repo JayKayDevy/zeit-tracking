@@ -816,8 +816,8 @@ app.delete("/api/billing/:id", auth, async (req, res) => {
 app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const { year, month } = req.params;
   const result = await pool.query(
-    `SELECT b.service_date, b.duration_hours, b.title, b.description, b.source_type,
-            p.name as project_name, p.external_id as project_ref
+    `SELECT b.service_date, b.end_time, b.duration_hours, b.title, b.description, b.source_type,
+            p.name as project_name
      FROM billing_entries b
      LEFT JOIN projects p ON p.id = b.project_id
      WHERE b.user_id=$1
@@ -829,25 +829,24 @@ app.get("/api/billing/export/xlsx/:year/:month", auth, async (req, res) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Abrechnung");
   sheet.columns = [
-    { header: "Enddatum", key: "date", width: 12 },
+    { header: "Enddatum", key: "date", width: 16 },
     { header: "Titel", key: "title", width: 30 },
     { header: "Kommentar", key: "desc", width: 40 },
     { header: "Projekt", key: "project", width: 24 },
-    { header: "Auftragsnummer", key: "ref", width: 16 },
     { header: "Dauer (Std)", key: "hours", width: 12 },
     { header: "Quelle", key: "source", width: 12 },
   ];
   sheet.getRow(1).font = { bold: true };
-  sheet.getColumn("date").numFmt = "dd.mm.yyyy";
-  sheet.getColumn("hours").numFmt = "0.00";
+  sheet.getColumn("date").numFmt = "dd.mm.yyyy hh:mm";
 
   for (const r of result.rows) {
     sheet.addRow({
-      date: new Date(r.service_date),
+      date: new Date(r.end_time || r.service_date),
       title: r.title,
       project: r.project_name || "",
-      ref: r.project_ref || "",
-      hours: parseFloat(r.duration_hours) || 0,
+      // Als Text mit Punkt statt Komma, damit der Wert unabhängig von der
+      // Excel-Gebietsschema-Einstellung sauber in eine Datenbank importiert werden kann.
+      hours: (parseFloat(r.duration_hours) || 0).toFixed(2),
       source: r.source_type || "",
       desc: r.description || "",
     });
