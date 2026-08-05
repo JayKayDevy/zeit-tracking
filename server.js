@@ -583,10 +583,18 @@ app.get("/api/import/emails", auth, async (req, res) => {
   const accessToken = await getValidAccessToken(req.user.id);
   if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
 
-  const { from, to } = berlinMonthBounds(year, month);
-  const fmtQ = (d) =>
-    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}`;
-  const q = `in:sent after:${fmtQ(from)} before:${fmtQ(to)}`;
+  // Gmails after:/before: erwarten Kalendertage, keine UTC-Instants. Die früher hier
+  // verwendeten from/to aus berlinMonthBounds() sind UTC-Instants der Berlin-Mitternacht
+  // (z.B. 01.07. 00:00 Berlin = 30.06. 22:00 UTC im Sommer) - deren UTC-Kalendertag per
+  // getUTCDate() auszulesen lieferte fälschlich den 30.06. statt den 01.07. als Grenze,
+  // wodurch der letzte Tag des Vormonats mit in die Ergebnisse rutschte. Die Kalendertage
+  // werden daher direkt aus den angeforderten Jahr/Monat-Werten gebaut, ohne UTC-Umweg.
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const y = Number(year);
+  const m = Number(month);
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const nextYear = m === 12 ? y + 1 : y;
+  const q = `in:sent after:${y}/${pad2(m)}/01 before:${nextYear}/${pad2(nextMonth)}/01`;
 
   // Gmail liefert maximal 50 Treffer pro Seite und ordnet neueste zuerst - ohne
   // Paginierung über nextPageToken fielen ältere E-Mails eines Monats mit mehr als
