@@ -2121,7 +2121,52 @@
         return `${text}\n\n—\n${statsLine}`;
       }
 
-      function showSaasdoConfirmModal(dateKey) {
+      let pendingSaasdoFormState = null;
+
+      function captureSaasdoFormState() {
+        return {
+          project_id: document.getElementById("sdProject")?.value,
+          endVal: document.getElementById("sdEnd")?.value,
+          duration_hours: document.getElementById("sdDuration")?.value,
+          title: document.getElementById("sdTitle")?.value,
+          description: document.getElementById("sdDesc")?.value,
+        };
+      }
+
+      function showSaasdoDetailsFromConfirm(dateKey) {
+        pendingSaasdoFormState = captureSaasdoFormState();
+        const day = saasdoDays.find((d) => d.date === dateKey);
+        if (!day) return;
+        const selected = getSaasdoSelection(dateKey);
+        const commits = day.blocks
+          .flatMap((b) => b.commits)
+          .filter((c) => selected.has(c.sourceId))
+          .sort((a, b) => a.ts - b.ts);
+        const html =
+          commits
+            .map(
+              (c) => `
+    <div style="margin-bottom:.75rem;padding-bottom:.75rem;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--muted)">${fmtTime(c.ts)} · ${escapeHtml(c.appName)} · ${escapeHtml(c.tag)} · ${escapeHtml(c.author)}</div>
+      <div style="font-size:13px;white-space:pre-wrap;margin-top:2px">${escapeHtml(c.message)}</div>
+    </div>
+  `,
+            )
+            .join("") || "<div style='color:var(--muted);font-size:13px'>Keine Commits ausgewählt</div>";
+        showModal(`
+    <div class="modal-title">Ausgewählte Commits</div>
+    <div style="max-height:50vh;overflow-y:auto">${html}</div>
+    <button class="btn btn-secondary" onclick="resumeSaasdoConfirm('${dateKey}')">Zurück</button>
+  `);
+      }
+
+      function resumeSaasdoConfirm(dateKey) {
+        const saved = pendingSaasdoFormState;
+        pendingSaasdoFormState = null;
+        showSaasdoConfirmModal(dateKey, saved);
+      }
+
+      function showSaasdoConfirmModal(dateKey, savedState) {
         const day = saasdoDays.find((d) => d.date === dateKey);
         if (!day) return;
         const selected = getSaasdoSelection(dateKey);
@@ -2138,7 +2183,7 @@
         const titleDefault = multiApp
           ? "Entwicklung – saas.do"
           : `Entwicklung – ${commits[0].appName}`;
-        const endVal = berlinLocalInput(new Date(commits[commits.length - 1].ts).toISOString());
+        const endVal = savedState?.endVal || berlinLocalInput(new Date(commits[commits.length - 1].ts).toISOString());
         const comment = buildSaasdoComment(commits, selBlocks);
 
         pendingSaasdoDate = dateKey;
@@ -2151,11 +2196,12 @@
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
-    <div class="form-group"><label>Projekt</label>${projectSelectHtml("sdProject", "", "– Bitte auswählen –")}</div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("sdProject", savedState?.project_id || "", "– Bitte auswählen –")}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="sdEnd" value="${endVal}" /></div>
-    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", durationHours)}</div>
-    <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(titleDefault)}" /></div>
-    <div class="form-group"><label>Kommentar</label><textarea id="sdDesc" rows="6" style="resize:vertical">${escapeHtml(comment)}</textarea></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("sdDuration", savedState?.duration_hours ?? durationHours)}</div>
+    <div class="form-group"><label>Titel</label><input type="text" id="sdTitle" value="${escapeHtml(savedState?.title ?? titleDefault)}" /></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="sdDesc" rows="6" style="resize:vertical">${escapeHtml(savedState?.description ?? comment)}</textarea></div>
+    <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showSaasdoDetailsFromConfirm('${dateKey}')">Details</button>
     <button class="btn btn-primary" onclick="confirmSaasdoImport(this)">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -2329,9 +2375,56 @@
             .join("");
       }
 
-      function showBillingDetails(id) {
+      function formatSourceMetadata(sourceType, metadata) {
+        if (!metadata) return "";
+        if (sourceType === "calendar") {
+          return formatAttendees(metadata.attendees);
+        }
+        if (sourceType === "email") {
+          const parts = [];
+          if (metadata.to) parts.push(`An: ${metadata.to}`);
+          if (metadata.snippet) parts.push(metadata.snippet);
+          return parts.join("\n");
+        }
+        if (sourceType === "saasdo") {
+          const parts = [];
+          if (metadata.appIds?.length) parts.push(`Apps: ${metadata.appIds.join(", ")}`);
+          if (metadata.tags?.length) parts.push(`Commits: ${metadata.tags.join(", ")}`);
+          return parts.join("\n");
+        }
+        return "";
+      }
+
+      let pendingBillingEditState = null;
+
+      function captureBillingEditState() {
+        return {
+          project_id: document.getElementById("editBillProject")?.value,
+          endVal: document.getElementById("editBillEnd")?.value,
+          duration_hours: document.getElementById("editBillDuration")?.value,
+          title: document.getElementById("editBillTitle")?.value,
+          description: document.getElementById("editBillDesc")?.value,
+        };
+      }
+
+      function showBillingDetailsFromEdit(id) {
+        pendingBillingEditState = captureBillingEditState();
+        showBillingDetails(id, true);
+      }
+
+      function resumeBillingEdit(id) {
+        const saved = pendingBillingEditState;
+        pendingBillingEditState = null;
+        editBillingEntry(id, saved);
+      }
+
+      function showBillingDetails(id, returnToEdit) {
         const b = billingEntries.find((x) => x.id === id);
         if (!b) return;
+        const metaText = formatSourceMetadata(b.source_type, b.source_metadata);
+        const backBtn = returnToEdit
+          ? `<button class="btn btn-secondary" onclick="resumeBillingEdit(${id})">Zurück</button>`
+          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
         showModal(`
     <div class="modal-title">${escapeHtml(b.title)}</div>
     <div style="font-size:13px;color:var(--muted)">
@@ -2340,29 +2433,31 @@
     </div>
     ${b.project_name ? `<div style="font-size:13px"><strong>Projekt:</strong> ${escapeHtml(b.project_name)}</div>` : ""}
     <div style="font-size:13px"><strong>Quelle:</strong> ${escapeHtml(SOURCE_LABELS[b.source_type] || b.source_type)}</div>
-    ${b.description ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(b.description)}</div>` : `<div style="font-size:13px;color:var(--muted);margin-top:.5rem">Kein Kommentar</div>`}
-    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+    ${metaText ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;margin-top:.5rem"><strong>Quelldetails:</strong><br>${escapeHtml(metaText)}</div>` : ""}
+    ${b.description ? `<div style="font-size:13px;white-space:pre-wrap;overflow-wrap:break-word;max-height:40vh;overflow-y:auto;margin-top:.5rem"><strong>Kommentar:</strong><br>${escapeHtml(b.description)}</div>` : `<div style="font-size:13px;color:var(--muted);margin-top:.5rem">Kein Kommentar</div>`}
+    ${backBtn}
   `);
       }
 
-      function editBillingEntry(id) {
+      function editBillingEntry(id, savedState) {
         const b = billingEntries.find((x) => x.id === id);
         if (!b) return;
-        const endVal = b.end_time
-          ? berlinLocalInput(b.end_time)
-          : berlinLocalInput(b.service_date);
+        const endVal =
+          savedState?.endVal ||
+          (b.end_time ? berlinLocalInput(b.end_time) : berlinLocalInput(b.service_date));
         showModal(`
     <div class="modal-title">Abrechnungsposition bearbeiten</div>
     <div class="form-group"><label>Projekt</label>
       <select id="editBillProject">
         <option value="">– Kein Projekt –</option>
-        ${projects.map((p) => `<option value="${p.id}" ${p.id == b.project_id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
+        ${projects.map((p) => `<option value="${p.id}" ${String(p.id) === String(savedState?.project_id ?? b.project_id) ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
       </select>
     </div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="editBillEnd" value="${endVal}" /></div>
-    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("editBillDuration", b.duration_hours || "")}</div>
-    <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(b.title)}" /></div>
-    <div class="form-group"><label>Kommentar</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(b.description)}</textarea></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("editBillDuration", savedState?.duration_hours ?? (b.duration_hours || ""))}</div>
+    <div class="form-group"><label>Titel</label><input type="text" id="editBillTitle" value="${escapeHtml(savedState?.title ?? b.title)}" /></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="editBillDesc" rows="4" style="resize:vertical">${escapeHtml(savedState?.description ?? b.description)}</textarea></div>
+    <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showBillingDetailsFromEdit(${id})">Details</button>
     <button class="btn btn-primary" onclick="saveBillingEntry(${b.id}, this)">Speichern</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
@@ -2501,11 +2596,34 @@
         return list.find((x) => x.id === id);
       }
 
-      function showItemDetails(id) {
+      let pendingImportFormState = null;
+
+      function captureImportFormState() {
+        return {
+          project_id: document.getElementById("impProject")?.value,
+          endVal: document.getElementById("impEnd")?.value,
+          duration_hours: document.getElementById("impDuration")?.value,
+          title: document.getElementById("impTitle")?.value,
+          description: document.getElementById("impDesc")?.value,
+        };
+      }
+
+      function showImportDetailsFromConfirm(id) {
+        pendingImportFormState = captureImportFormState();
+        showItemDetails(id, true);
+      }
+
+      function resumeImportConfirm(id) {
+        const saved = pendingImportFormState;
+        pendingImportFormState = null;
+        showImportConfirmModal(id, saved);
+      }
+
+      function showItemDetails(id, returnToConfirm) {
         const item = findImportItem(id);
         if (!item) return;
         if (importView === "email") {
-          showEmailDetails(item.id);
+          showEmailDetails(item.id, returnToConfirm);
           return;
         }
         const RESPONSE_LABELS = {
@@ -2520,6 +2638,9 @@
               return `${escapeHtml(label)}${escapeHtml(status)}${a.email && a.name ? ` <span style="color:var(--muted)">${escapeHtml(a.email)}</span>` : ""}`;
             })
             .join("<br>") || "–";
+        const backBtn = returnToConfirm
+          ? `<button class="btn btn-secondary" onclick="resumeImportConfirm('${id}')">Zurück</button>`
+          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
         showModal(`
     <div class="modal-title">${escapeHtml(item.title)}</div>
     <div style="font-size:13px;color:var(--muted)">${
@@ -2533,31 +2654,34 @@
     ${item.location ? `<div style="font-size:13px"><strong>Ort:</strong> ${escapeHtml(item.location)}</div>` : ""}
     ${item.conferenceLink ? `<div style="font-size:13px"><strong>Konferenzlink:</strong> <a href="${escapeHtml(item.conferenceLink)}" target="_blank" rel="noopener">${escapeHtml(item.conferenceLink)}</a></div>` : ""}
     ${item.description ? `<div style="font-size:13px;white-space:pre-wrap;max-height:40vh;overflow-y:auto;margin-top:.5rem">${escapeHtml(item.description)}</div>` : ""}
-    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+    ${backBtn}
   `);
       }
 
-      async function showEmailDetails(id) {
+      async function showEmailDetails(id, returnToConfirm) {
         showModal(
           `<div class="modal-title">E-Mail-Inhalt</div><div class="spinner-wrap"><div class="spinner"></div></div>`,
         );
+        const backBtn = returnToConfirm
+          ? `<button class="btn btn-secondary" onclick="resumeImportConfirm('${id}')">Zurück</button>`
+          : `<button class="btn btn-secondary" onclick="closeModal()">Schließen</button>`;
         try {
           const { body } = await api("GET", `/import/emails/${id}/body`);
           showModal(`
     <div class="modal-title">E-Mail-Inhalt</div>
     <div style="font-size:13px;white-space:pre-wrap;max-height:50vh;overflow-y:auto">${escapeHtml(body) || "(kein Inhalt)"}</div>
-    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+    ${backBtn}
   `);
         } catch (e) {
           showModal(`
     <div class="modal-title">Fehler</div>
     <div style="font-size:13px;color:var(--red)">${escapeHtml(e.message)}</div>
-    <button class="btn btn-secondary" onclick="closeModal()">Schließen</button>
+    ${backBtn}
   `);
         }
       }
 
-      async function showImportConfirmModal(id) {
+      async function showImportConfirmModal(id, savedState) {
         const item = findImportItem(id);
         if (!item) return;
         const isEmail = importView === "email";
@@ -2578,16 +2702,17 @@
         }
 
         const endSource = isEmail ? item.sentAt : item.end;
-        const endVal = berlinLocalInput(endSource);
+        const endVal = savedState?.endVal || berlinLocalInput(endSource);
 
         showModal(`
     <div class="modal-title">Als Abrechnungsposition übernehmen</div>
     ${isEmail ? `<div style="font-size:12px;color:var(--muted)">E-Mails haben keine geschätzte Dauer — bitte selbst festlegen.</div>` : ""}
-    <div class="form-group"><label>Projekt</label>${projectSelectHtml("impProject", "", "– Bitte auswählen –")}</div>
+    <div class="form-group"><label>Projekt</label>${projectSelectHtml("impProject", savedState?.project_id || "", "– Bitte auswählen –")}</div>
     <div class="form-group"><label>Enddatum</label><input type="datetime-local" id="impEnd" value="${endVal}" /></div>
-    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", durationHours)}</div>
-    <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(item.title)}" /></div>
-    <div class="form-group"><label>Kommentar</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(description)}</textarea></div>
+    <div class="form-group"><label>Dauer (Stunden)</label>${durationStepperHtml("impDuration", savedState?.duration_hours ?? durationHours)}</div>
+    <div class="form-group"><label>Titel</label><input type="text" id="impTitle" value="${escapeHtml(savedState?.title ?? item.title)}" /></div>
+    <div class="form-group"><label>Kommentar</label><textarea id="impDesc" rows="4" style="resize:vertical">${escapeHtml(savedState?.description ?? description)}</textarea></div>
+    <button class="btn btn-secondary btn-sm" style="width:auto" onclick="showImportDetailsFromConfirm('${item.id}')">Details</button>
     <button class="btn btn-primary" onclick="confirmImport('${item.id}', this)">Übernehmen</button>
     <button class="btn btn-secondary" onclick="closeModal()">Abbrechen</button>
   `);
