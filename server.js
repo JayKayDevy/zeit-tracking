@@ -518,17 +518,30 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
   if (!accessToken) return res.status(400).json({ error: "Google nicht verbunden" });
 
   const { from, to } = berlinMonthBounds(year, month);
-  const params = new URLSearchParams({
-    timeMin: from.toISOString(),
-    timeMax: to.toISOString(),
-    singleEvents: "true",
-    orderBy: "startTime",
-  });
-  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await r.json();
-  if (!r.ok) return res.status(502).json({ error: "Google-Kalender-Anfrage fehlgeschlagen" });
+  // Paginiert vorsorglich mit (analog zum Gmail-Import) - Googles Default-Seitengröße
+  // von 250 Terminen/Monat wird selten überschritten, aber ohne pageToken-Schleife
+  // würden überzählige Termine sonst still wegfallen.
+  const allItems = [];
+  let pageToken;
+  let page = 0;
+  do {
+    const params = new URLSearchParams({
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "250",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(502).json({ error: "Google-Kalender-Anfrage fehlgeschlagen" });
+    allItems.push(...(data.items || []));
+    pageToken = data.nextPageToken;
+    page++;
+  } while (pageToken && page < 10);
 
   const reviewed = await pool.query(
     "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='calendar'",
@@ -536,7 +549,7 @@ app.get("/api/import/calendar-events", auth, async (req, res) => {
   );
   const reviewedIds = new Set(reviewed.rows.map((row) => row.source_id));
 
-  const events = (data.items || [])
+  const events = allItems
     .filter((e) => e.status !== "cancelled" && !reviewedIds.has(e.id))
     // Termine, deren Betreff ausschließlich "Büro" ist, sind standardmäßig kein
     // abrechenbarer Hinweis (reine Anwesenheitsnotiz, kein inhaltlicher Termin).
@@ -575,23 +588,35 @@ app.get("/api/import/emails", auth, async (req, res) => {
     `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}`;
   const q = `in:sent after:${fmtQ(from)} before:${fmtQ(to)}`;
 
-  const listParams = new URLSearchParams({ q, maxResults: "50" });
-  const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${listParams}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const listData = await listR.json();
-  if (!listR.ok) {
-    if (listR.status === 403)
-      return res.status(403).json({ error: "Bitte Google-Verbindung erneuern (E-Mail-Zugriff fehlt)" });
-    return res.status(502).json({ error: "Gmail-Anfrage fehlgeschlagen" });
-  }
+  // Gmail liefert maximal 50 Treffer pro Seite und ordnet neueste zuerst - ohne
+  // Paginierung über nextPageToken fielen ältere E-Mails eines Monats mit mehr als
+  // 50 gesendeten Mails (z.B. Anfang des Monats) stillschweigend raus.
+  const allMessages = [];
+  let pageToken;
+  let page = 0;
+  do {
+    const listParams = new URLSearchParams({ q, maxResults: "100" });
+    if (pageToken) listParams.set("pageToken", pageToken);
+    const listR = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${listParams}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const listData = await listR.json();
+    if (!listR.ok) {
+      if (listR.status === 403)
+        return res.status(403).json({ error: "Bitte Google-Verbindung erneuern (E-Mail-Zugriff fehlt)" });
+      return res.status(502).json({ error: "Gmail-Anfrage fehlgeschlagen" });
+    }
+    allMessages.push(...(listData.messages || []));
+    pageToken = listData.nextPageToken;
+    page++;
+  } while (pageToken && page < 10);
 
   const reviewed = await pool.query(
     "SELECT source_id FROM import_reviews WHERE user_id=$1 AND source_type='email'",
     [req.user.id]
   );
   const reviewedIds = new Set(reviewed.rows.map((row) => row.source_id));
-  const messageIds = (listData.messages || [])
+  const messageIds = allMessages
     .map((m) => m.id)
     .filter((id) => !reviewedIds.has(id));
 
